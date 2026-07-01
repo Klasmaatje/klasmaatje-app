@@ -1,0 +1,40 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+// ---------- TENANT ----------
+
+model Organization {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  logoUrl      String?
+  primaryColor String   @default("#3D2467")
+  accentColor  String   @default("#E8B44A")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  config SchoolConfig?
+}
+
+model SchoolConfig {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  aiProvider        String  @default("gemini") // bv. "gemini", later evt. "openai"
+  microAnalyseLabel String  @default("Micro-analyse")
+  qualityFramework  String  @default("SLO-kerndoelen")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
