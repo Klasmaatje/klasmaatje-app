@@ -24,6 +24,7 @@ model Organization {
   updatedAt    DateTime @updatedAt
 
   config SchoolConfig?
+  users  User[]
 }
 
 model SchoolConfig {
@@ -31,10 +32,83 @@ model SchoolConfig {
   organizationId String       @unique
   organization   Organization @relation(fields: [organizationId], references: [id])
 
-  aiProvider        String  @default("gemini") // bv. "gemini", later evt. "openai"
-  microAnalyseLabel String  @default("Micro-analyse")
-  qualityFramework  String  @default("SLO-kerndoelen")
+  aiProvider        String @default("gemini") // bv. "gemini", later evt. "openai"
+  microAnalyseLabel String @default("Micro-analyse")
+  qualityFramework  String @default("SLO-kerndoelen")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model User {
+  id             String        @id
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  role           Role          @default(TEACHER)
+  groep          String?
+  name           String
+  email          String
+  emailVerified  Boolean       @default(false)
+  image          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  sessions       Session[]
+  accounts       Account[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+enum Role {
+  TEACHER
+  SCHOOL_ADMIN
+  PLATFORM_ADMIN
 }
