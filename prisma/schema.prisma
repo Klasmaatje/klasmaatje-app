@@ -25,6 +25,7 @@ model Organization {
 
   config SchoolConfig?
   users  User[]
+  methods OrganizationMethod[]
 }
 
 model SchoolConfig {
@@ -111,4 +112,27 @@ enum Role {
   TEACHER
   SCHOOL_ADMIN
   PLATFORM_ADMIN
+}
+// ---------- METHODE-CATALOGUS (methode-agnostisch) ----------
+
+model Method {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  subject     String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organizations OrganizationMethod[]
+}
+
+model OrganizationMethod {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  methodId       String
+  method         Method       @relation(fields: [methodId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, methodId])
 }

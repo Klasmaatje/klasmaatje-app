@@ -23,7 +23,46 @@ async function main() {
     },
   });
 
+  const methods = await Promise.all([
+    prisma.method.upsert({
+      where: { name: "Faqta" },
+      update: {},
+      create: {
+        name: "Faqta",
+        subject: "wereldoriëntatie",
+        description: "Methode voor wereldoriëntatie en burgerschap, gericht op onderzoekend leren.",
+      },
+    }),
+    prisma.method.upsert({
+      where: { name: "Estafette" },
+      update: {},
+      create: {
+        name: "Estafette",
+        subject: "technisch lezen",
+        description: "Voortgezet technisch leesonderwijs voor groep 4 t/m 8.",
+      },
+    }),
+    prisma.method.upsert({
+      where: { name: "Schatkist" },
+      update: {},
+      create: {
+        name: "Schatkist",
+        subject: "kleuters",
+        description: "Totaalmethode voor groep 1-2, gericht op spelend leren.",
+      },
+    }),
+  ]);
+
+  for (const method of methods) {
+    await prisma.organizationMethod.upsert({
+      where: { organizationId_methodId: { organizationId: shon.id, methodId: method.id } },
+      update: {},
+      create: { organizationId: shon.id, methodId: method.id },
+    });
+  }
+
   console.log("Seed klaar:", shon);
+  console.log("Methodes gekoppeld aan SHON:", methods.map((m) => m.name).join(", "));
 }
 
 main()
