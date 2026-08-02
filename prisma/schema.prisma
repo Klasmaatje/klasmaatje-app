@@ -11,7 +11,7 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
-// ---------- TENANT ----------
+// ---------- BESTUUR / STICHTING ----------
 
 model Organization {
   id           String   @id @default(cuid())
@@ -23,9 +23,11 @@ model Organization {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  config SchoolConfig?
-  users  User[]
-  methods OrganizationMethod[]
+  config        SchoolConfig?
+  schools       School[]
+  users         User[]
+  weekPlans     WeekPlan[]
+  schoolResults SchoolResult[]
 }
 
 model SchoolConfig {
@@ -33,18 +35,48 @@ model SchoolConfig {
   organizationId String       @unique
   organization   Organization @relation(fields: [organizationId], references: [id])
 
-  aiProvider        String @default("gemini") // bv. "gemini", later evt. "openai"
+  aiProvider        String @default("gemini")
   microAnalyseLabel String @default("Micro-analyse")
   qualityFramework  String @default("SLO-kerndoelen")
+
+  // Fase-4 feature flags (structuur nu, features later)
+  studentDataMode             String  @default("NONE") // NONE | ANONYMOUS_GROUP_ONLY | PSEUDONYMIZED | IDENTIFIABLE
+  parnasSysEnabled            Boolean @default(false)
+  oppSupportEnabled           Boolean @default(false)
+  studentLevelAnalysisEnabled Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
+// ---------- SCHOOL ----------
+
+model School {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name String
+  code String @unique // "SGS", "SSS", "SKS", "SVS", "SLS"
+
+  users         User[]
+  methods       SchoolMethod[]
+  scheduleItems ScheduleItem[]
+  weekPlans     WeekPlan[]
+  schoolResults SchoolResult[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------- GEBRUIKERS ----------
+
 model User {
   id             String        @id
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
+  schoolId       String?
+  school         School?       @relation(fields: [schoolId], references: [id])
   role           Role          @default(TEACHER)
   groep          String?
   name           String
@@ -55,9 +87,17 @@ model User {
   updatedAt      DateTime      @updatedAt
   sessions       Session[]
   accounts       Account[]
+  weekPlans      WeekPlan[]
 
   @@unique([email])
   @@map("user")
+}
+
+enum Role {
+  TEACHER
+  SCHOOL_ADMIN
+  BOARD
+  PLATFORM_ADMIN
 }
 
 model Session {
@@ -108,31 +148,116 @@ model Verification {
   @@map("verification")
 }
 
-enum Role {
-  TEACHER
-  SCHOOL_ADMIN
-  PLATFORM_ADMIN
-}
-// ---------- METHODE-CATALOGUS (methode-agnostisch) ----------
+// ---------- METHODE-CATALOGUS ----------
 
 model Method {
   id          String   @id @default(cuid())
   name        String   @unique
   subject     String
   description String?
+  subjectArea String?
+  sloMapping  String[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  organizations OrganizationMethod[]
+  schools   SchoolMethod[]
+  weekPlans WeekPlan[]
 }
 
-model OrganizationMethod {
+model SchoolMethod {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+  methodId String
+  method   Method @relation(fields: [methodId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([schoolId, methodId])
+}
+
+// ---------- MIJN WEEK ----------
+
+model ScheduleItem {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  label       String
+  defaultTime String?
+  category    String  @default("routine")
+  aiHint      String?
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WeekPlan {
   id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
-  methodId       String
-  method         Method       @relation(fields: [methodId], references: [id])
-  createdAt      DateTime     @default(now())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  methodId       String?
+  method         Method?      @relation(fields: [methodId], references: [id])
 
-  @@unique([organizationId, methodId])
+  groep          String
+  periode        String
+  thema          String?
+  bijzonderheden String?
+  status         String       @default("DRAFT")
+
+  lessons Lesson[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Lesson {
+  id         String   @id @default(cuid())
+  weekPlanId String
+  weekPlan   WeekPlan @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+
+  dag                 String
+  timeSlot            String?
+  type                String  @default("les") // les | toets | routine | viering | oom
+  subject             String
+  cooperativeStrategy String?
+
+  goalBasis      String?
+  goalVerlengd   String?
+  goalVerrijking String?
+
+  // Kwaliteitsvelden (uit SHON-trendanalyses)
+  targetGroup      String?
+  frequency        String?
+  materials        String?
+  didacticStrategy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------- BESTUURS-RESULTATEN (groepsgemiddelden, geen leerlingdata) ----------
+
+model SchoolResult {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id])
+
+  leerjaar    String   // "5", "6", ...
+  vak         String   // "CITO DMT", "CITO RW", ...
+  toetsmoment String   // "M26", "E25", ...
+  schooljaar  String   // "2025/2026"
+  score       Float    // groepsgemiddelde
+  aantalLln   Int?     // aantal leerlingen (context, geen individu)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([schoolId])
 }
