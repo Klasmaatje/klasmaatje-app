@@ -1,0 +1,8 @@
+-- CreateEnum
+CREATE TYPE "RosterType" AS ENUM ('TRADITIONAL', 'CONTINUOUS', 'CUSTOM');
+
+-- AlterTable
+ALTER TABLE "School" ADD COLUMN     "rosterType" "RosterType" NOT NULL DEFAULT 'TRADITIONAL',
+ADD COLUMN     "standardEndTime" TEXT NOT NULL DEFAULT '15:00',
+ADD COLUMN     "startTime" TEXT NOT NULL DEFAULT '08:30',
+ADD COLUMN     "wednesdayEndTime" TEXT DEFAULT '12:15';

@@ -59,14 +59,53 @@ model School {
   name String
   code String @unique // "SGS", "SSS", "SKS", "SVS", "SLS"
 
+  // Roostertype als label / onboarding-sjabloon. De ECHTE tijden per weekdag
+  // (incl. pauzes) staan in SchoolDaySchedule — dat is de bron van waarheid.
+  rosterType RosterType @default(TRADITIONAL) // label: TRADITIONAL | CONTINUOUS | CUSTOM
+
   users         User[]
   methods       SchoolMethod[]
   scheduleItems ScheduleItem[]
+  daySchedules  SchoolDaySchedule[]
   weekPlans     WeekPlan[]
   schoolResults SchoolResult[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum RosterType {
+  TRADITIONAL // klassiek: aparte middagpauze, woensdag vaak half
+  CONTINUOUS  // continurooster: korte pauze, iedereen blijft over
+  CUSTOM      // afwijkend / vrij
+}
+
+// Dagschema per school: de echte tijden per weekdag, inclusief pauze.
+// Eén rij per (school, dag). Geen rij = die dag geen school.
+// Bron van waarheid voor de AI-weekplanner (start/eind/pauze per dag).
+model SchoolDaySchedule {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  dayOfWeek  Weekday
+  startTime  String  // "08:30"
+  endTime    String  // "15:00"
+  breakStart String? // begin middagpauze; null = geen aparte pauze
+  breakEnd   String? // eind middagpauze
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([schoolId, dayOfWeek])
+}
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
 }
 
 // ---------- GEBRUIKERS ----------
@@ -156,6 +195,7 @@ model Method {
   subject     String
   description String?
   subjectArea String?
+  publisher   String?
   sloMapping  String[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
