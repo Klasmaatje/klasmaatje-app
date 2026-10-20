@@ -2,24 +2,36 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   LayoutDashboard, CalendarDays, Sparkles, FolderOpen,
-  ClipboardCheck, ChevronsLeft, ChevronsRight, GraduationCap,
+  ClipboardCheck, ChevronsLeft, ChevronsRight, GraduationCap, Users, LogOut,
 } from "lucide-react";
+import { authClient } from "../../lib/auth-client";
 
 type SidebarProps = {
   userName: string;
+  roleLabel?: string;
   organizationName: string;
   primaryColor: string;
   accentColor: string;
   microAnalyseLabel: string;
+  canManageGroups?: boolean;
 };
 
-export default function Sidebar({ userName, organizationName, primaryColor, accentColor, microAnalyseLabel }: SidebarProps) {
+export default function Sidebar({ userName, roleLabel, organizationName, primaryColor, accentColor, microAnalyseLabel, canManageGroups = false }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    await authClient.signOut();
+    router.push("/login");
+    router.refresh();
+  }
 
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -27,6 +39,7 @@ export default function Sidebar({ userName, organizationName, primaryColor, acce
     { href: "/lesassistent", label: "Lesassistent", icon: Sparkles },
     { href: "/materiaal", label: "Materiaal", icon: FolderOpen },
     { href: "/micro-analyse", label: microAnalyseLabel, icon: ClipboardCheck },
+    ...(canManageGroups ? [{ href: "/groepen", label: "Groepen", icon: Users }] : []),
   ];
 
   return (
@@ -71,8 +84,21 @@ export default function Sidebar({ userName, organizationName, primaryColor, acce
           <div className="flex items-center justify-center w-9 h-9 rounded-full shrink-0" style={{ background: "rgba(255,255,255,0.1)" }}>
             <GraduationCap size={16} color={accentColor} />
           </div>
-          {!collapsed && <p className="text-sm font-medium text-white truncate">{userName}</p>}
+          {!collapsed && (
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white truncate">{userName}</p>
+              {roleLabel && <p className="text-xs truncate" style={{ color: "#C8B6E8" }}>{roleLabel}</p>}
+            </div>
+          )}
         </div>
+
+        <button onClick={handleSignOut} disabled={signingOut}
+          className={`flex items-center gap-2 rounded-lg py-2 w-full text-xs font-medium disabled:opacity-60 ${collapsed ? "justify-center px-2" : "px-3"}`}
+          style={{ color: "#C8B6E8" }}
+          title="Uitloggen">
+          <LogOut size={16} />
+          {!collapsed && <span>{signingOut ? "Bezig..." : "Uitloggen"}</span>}
+        </button>
 
         <button onClick={() => setCollapsed(!collapsed)}
           className={`flex items-center gap-2 rounded-lg py-2 w-full text-xs font-medium ${collapsed ? "justify-center px-2" : "px-3"}`}
@@ -83,4 +109,4 @@ export default function Sidebar({ userName, organizationName, primaryColor, acce
       </div>
     </aside>
   );
-}
+}
