@@ -197,8 +197,7 @@ async function main() {
   // Naam = zoals de school de groep noemt; grades = leerjaren 1-8.
   // Bewust GEEN leerkrachtnamen: wie in welke groep werkt, loopt via
   // ClassGroupMembership zodra mensen een account hebben.
-  // SLS (Laksmi): formatie 2026-2027 nog niet ontvangen; startset = indeling
-  // uit de conceptformatie 2024-2025. Directie bevestigt of corrigeert.
+  // SLS (Laksmi): formatie 2026-2027 ontvangen van de directie (20 okt 2026).
   const SCHOOL_YEAR = "2026/2027";
   const groupsBySchool: Record<string, { name: string; grades: number[] }[]> = {
     // SGS: "0/1/2" = kleutergroep incl. instromers; leerjaar 0 bestaat niet als jaarlaag.
@@ -243,18 +242,16 @@ async function main() {
       { name: "8a", grades: [8] },
       { name: "8b", grades: [8] },
     ],
-    // SLS: startset op basis van conceptformatie 2024-2025, nog te bevestigen.
+    // SLS: formatie 2026-2027 (directie, 20 okt 2026).
     SLS: [
       { name: "1", grades: [1] },
       { name: "2", grades: [2] },
       { name: "3", grades: [3] },
-      { name: "4a", grades: [4] },
-      { name: "4b", grades: [4] },
+      { name: "4", grades: [4] },
       { name: "5", grades: [5] },
       { name: "6a", grades: [6] },
       { name: "6b", grades: [6] },
-      { name: "7a", grades: [7] },
-      { name: "7b", grades: [7] },
+      { name: "7", grades: [7] },
       { name: "8a", grades: [8] },
       { name: "8b", grades: [8] },
     ],
