@@ -190,6 +190,80 @@ async function main() {
     }
   }
 
+  // ----- Groepen schooljaar 2026/2027 -----
+  // Bron: werkverdelings-/formatieplannen 2026-2027 per school (formatietabel).
+  // Naam = zoals de school de groep noemt; grades = leerjaren 1-8.
+  // Bewust GEEN leerkrachtnamen: wie in welke groep werkt, loopt via
+  // ClassGroupMembership zodra mensen een account hebben.
+  // SLS (Laksmi): formatie nog niet bekend, dus nog geen groepen.
+  const SCHOOL_YEAR = "2026/2027";
+  const groupsBySchool: Record<string, { name: string; grades: number[] }[]> = {
+    // SGS: "0/1/2" = kleutergroep incl. instromers; leerjaar 0 bestaat niet als jaarlaag.
+    SGS: [
+      { name: "0/1/2", grades: [1, 2] },
+      { name: "3", grades: [3] },
+      { name: "4/5", grades: [4, 5] },
+      { name: "6/7", grades: [6, 7] },
+      { name: "8", grades: [8] },
+    ],
+    SSS: [
+      { name: "1/2a", grades: [1, 2] },
+      { name: "1/2b", grades: [1, 2] },
+      { name: "3", grades: [3] },
+      { name: "4/5", grades: [4, 5] },
+      { name: "6", grades: [6] },
+      { name: "7", grades: [7] },
+      { name: "8", grades: [8] },
+    ],
+    SKS: [
+      { name: "1/2", grades: [1, 2] },
+      { name: "3/4", grades: [3, 4] },
+      { name: "5/6", grades: [5, 6] },
+      { name: "7/8", grades: [7, 8] },
+    ],
+    // SVS: kleuters per jaarlaag (groep 1 apart, groep 2 in twee groepen).
+    // 7b nog te bevestigen: formatietabel is daar onduidelijk ("7ba").
+    SVS: [
+      { name: "1", grades: [1] },
+      { name: "2a", grades: [2] },
+      { name: "2b", grades: [2] },
+      { name: "3a", grades: [3] },
+      { name: "3b", grades: [3] },
+      { name: "4a", grades: [4] },
+      { name: "4b", grades: [4] },
+      { name: "5a", grades: [5] },
+      { name: "5b", grades: [5] },
+      { name: "6a", grades: [6] },
+      { name: "6b", grades: [6] },
+      { name: "7a", grades: [7] },
+      { name: "7b", grades: [7] },
+      { name: "8a", grades: [8] },
+      { name: "8b", grades: [8] },
+    ],
+  };
+
+  for (const school of schools) {
+    for (const g of groupsBySchool[school.code] ?? []) {
+      await prisma.classGroup.upsert({
+        where: {
+          schoolId_schoolYear_name: {
+            schoolId: school.id,
+            schoolYear: SCHOOL_YEAR,
+            name: g.name,
+          },
+        },
+        update: { grades: g.grades },
+        create: {
+          organizationId: school.organizationId,
+          schoolId: school.id,
+          name: g.name,
+          grades: g.grades,
+          schoolYear: SCHOOL_YEAR,
+        },
+      });
+    }
+  }
+
   const dayCount = await prisma.schoolDaySchedule.count();
   console.log("Seed klaar:");
   console.log("  Organisatie:", shon.name);
@@ -197,6 +271,12 @@ async function main() {
   console.log("  Dagroosters:", dayCount);
   console.log("  Methode-catalogus:", methods.length);
   console.log("  SHON-standaardmethodes per school:", shonDefaults.length);
+  for (const school of schools) {
+    const count = await prisma.classGroup.count({
+      where: { schoolId: school.id, schoolYear: SCHOOL_YEAR },
+    });
+    console.log(`  Groepen ${SCHOOL_YEAR} ${school.code}:`, count);
+  }
 }
 
 main()

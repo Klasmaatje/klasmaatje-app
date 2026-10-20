@@ -11,6 +11,7 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
 // ---------- BESTUUR / STICHTING ----------
 
 model Organization {
@@ -26,6 +27,7 @@ model Organization {
   config        SchoolConfig?
   schools       School[]
   users         User[]
+  classGroups   ClassGroup[]
   weekPlans     WeekPlan[]
   schoolResults SchoolResult[]
 }
@@ -64,6 +66,7 @@ model School {
   rosterType RosterType @default(TRADITIONAL) // label: TRADITIONAL | CONTINUOUS | CUSTOM
 
   users         User[]
+  classGroups   ClassGroup[]
   methods       SchoolMethod[]
   scheduleItems ScheduleItem[]
   daySchedules  SchoolDaySchedule[]
@@ -76,8 +79,8 @@ model School {
 
 enum RosterType {
   TRADITIONAL // klassiek: aparte middagpauze, woensdag vaak half
-  CONTINUOUS  // continurooster: korte pauze, iedereen blijft over
-  CUSTOM      // afwijkend / vrij
+  CONTINUOUS // continurooster: korte pauze, iedereen blijft over
+  CUSTOM // afwijkend / vrij
 }
 
 // Dagschema per school: de echte tijden per weekdag, inclusief pauze.
@@ -89,8 +92,8 @@ model SchoolDaySchedule {
   school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 
   dayOfWeek  Weekday
-  startTime  String  // "08:30"
-  endTime    String  // "15:00"
+  startTime  String // "08:30"
+  endTime    String // "15:00"
   breakStart String? // begin middagpauze; null = geen aparte pauze
   breakEnd   String? // eind middagpauze
 
@@ -111,32 +114,90 @@ enum Weekday {
 // ---------- GEBRUIKERS ----------
 
 model User {
-  id             String        @id
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id])
-  schoolId       String?
-  school         School?       @relation(fields: [schoolId], references: [id])
-  role           Role          @default(TEACHER)
-  groep          String?
-  name           String
-  email          String
-  emailVerified  Boolean       @default(false)
-  image          String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  sessions       Session[]
-  accounts       Account[]
-  weekPlans      WeekPlan[]
+  id                    String                 @id
+  organizationId        String?
+  organization          Organization?          @relation(fields: [organizationId], references: [id])
+  schoolId              String?
+  school                School?                @relation(fields: [schoolId], references: [id])
+  role                  Role                   @default(TEACHER)
+  // VEROUDERD: vrij tekstveld uit de registratie. De echte koppeling
+  // leerkracht <-> groep loopt via ClassGroupMembership. Wordt verwijderd
+  // zodra de registratie/onboarding een ClassGroup laat kiezen.
+  groep                 String?
+  name                  String
+  email                 String
+  emailVerified         Boolean                @default(false)
+  image                 String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  sessions              Session[]
+  accounts              Account[]
+  weekPlans             WeekPlan[]
+  classGroupMemberships ClassGroupMembership[]
 
   @@unique([email])
   @@map("user")
 }
 
+// Rol bepaalt WAT iemand mag; de scope (schoolId / organizationId /
+// ClassGroupMembership) bepaalt WAARover. Server-side afgedwongen in lib/access.ts.
 enum Role {
-  TEACHER
-  SCHOOL_ADMIN
-  BOARD
-  PLATFORM_ADMIN
+  TEACHER // eigen groepen (via ClassGroupMembership)
+  IB // intern begeleider: alle groepen eigen school, lezen + ondersteunen
+  SCHOOL_ADMIN // directeur/schoolleiding: alle groepen eigen school + beheer
+  QUALITY_STAFF // bovenschools kwaliteitsmedewerker: inhoudelijk, alle scholen van het bestuur
+  BOARD // bestuur/RvT/bestuursbureau: meso/trend, anonieme aggregaties
+  PLATFORM_ADMIN // Klasmaatje-beheer: alles
+}
+
+// ---------- GROEPEN (KLASSEN) ----------
+
+// Een groep zoals de school die kent: "6A", "3/4", "1/2B". Hoort bij één school
+// en één schooljaar; volgend schooljaar = nieuwe ClassGroup (historie blijft
+// intact, oude WeekPlans blijven aan de oude groep hangen).
+// Bevat GEEN leerlinggegevens.
+model ClassGroup {
+  id             String       @id @default(cuid())
+  organizationId String // tenant-scope; moet gelijk zijn aan school.organizationId (gecontroleerd in lib/access.ts)
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id])
+
+  name       String // weergavenaam zoals de school 'm gebruikt: "6A", "3/4"
+  grades     Int[] // leerjaren 1-8; combiklas = [3, 4]. Matcht ScheduleItem.targetGrades
+  schoolYear String // "2026/2027" (zelfde notatie als SchoolResult.schooljaar)
+
+  memberships ClassGroupMembership[]
+  weekPlans   WeekPlan[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([schoolId, schoolYear, name])
+  @@index([organizationId])
+}
+
+// Wie werkt actief in deze groep (many-to-many). Een leerkracht kan meerdere
+// groepen hebben; een groep meerdere leerkrachten (duo, invaller).
+// IB/directie/kwaliteit krijgen inzage via rol + scope, NIET via membership.
+model ClassGroupMembership {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classGroupId String
+  classGroup   ClassGroup     @relation(fields: [classGroupId], references: [id], onDelete: Cascade)
+  role         ClassGroupRole @default(GROUP_TEACHER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, classGroupId])
+  @@index([classGroupId])
+}
+
+enum ClassGroupRole {
+  GROUP_TEACHER // groepsleerkracht (ook duo-partner)
+  SUBSTITUTE // invaller
 }
 
 model Session {
@@ -205,11 +266,11 @@ model Method {
 }
 
 model SchoolMethod {
-  id       String @id @default(cuid())
-  schoolId String
-  school   School @relation(fields: [schoolId], references: [id])
-  methodId String
-  method   Method @relation(fields: [methodId], references: [id])
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  methodId  String
+  method    Method   @relation(fields: [methodId], references: [id])
   createdAt DateTime @default(now())
 
   @@unique([schoolId, methodId])
@@ -222,11 +283,15 @@ model ScheduleItem {
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
-  label       String
-  defaultTime String?
-  category    String  @default("routine")
-  aiHint      String?
-  sortOrder   Int     @default(0)
+  label        String
+  defaultTime  String?
+  category     String  @default("routine")
+  aiHint       String?
+  sortOrder    Int     @default(0)
+  // Voor welke LEERJAREN (1-8) dit vaste item geldt, bv. [1, 2] voor
+  // kleuterkring. Leeg = geldt voor alle leerjaren. Let op: leerjaar, niet
+  // de groepsnaam ("6A") — die staat op ClassGroup.
+  targetGrades Int[]   @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -238,21 +303,27 @@ model WeekPlan {
   organization   Organization @relation(fields: [organizationId], references: [id])
   schoolId       String
   school         School       @relation(fields: [schoolId], references: [id])
-  userId         String
+  classGroupId   String
+  classGroup     ClassGroup   @relation(fields: [classGroupId], references: [id])
+  userId         String // maker van het plan (leerkracht)
   user           User         @relation(fields: [userId], references: [id])
   methodId       String?
   method         Method?      @relation(fields: [methodId], references: [id])
 
-  groep          String
+  // `groep` (tekst) vervangen door classGroupId; naam komt uit ClassGroup.name
   periode        String
   thema          String?
   bijzonderheden String?
-  status         String       @default("DRAFT")
+  status         String  @default("DRAFT")
 
   lessons Lesson[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([classGroupId])
+  @@index([schoolId])
+  @@index([organizationId])
 }
 
 model Lesson {
@@ -289,12 +360,12 @@ model SchoolResult {
   schoolId       String
   school         School       @relation(fields: [schoolId], references: [id])
 
-  leerjaar    String   // "5", "6", ...
-  vak         String   // "CITO DMT", "CITO RW", ...
-  toetsmoment String   // "M26", "E25", ...
-  schooljaar  String   // "2025/2026"
-  score       Float    // groepsgemiddelde
-  aantalLln   Int?     // aantal leerlingen (context, geen individu)
+  leerjaar    String // "5", "6", ...
+  vak         String // "CITO DMT", "CITO RW", ...
+  toetsmoment String // "M26", "E25", ...
+  schooljaar  String // "2025/2026"
+  score       Float // groepsgemiddelde
+  aantalLln   Int? // aantal leerlingen (context, geen individu)
 
   createdAt DateTime @default(now())
 

@@ -1,0 +1,245 @@
+// Toegangsmodel Klasmaatje: rol x scope, server-side afgedwongen.
+//
+// Rol bepaalt WAT iemand mag, scope bepaalt WAAROVER:
+//   TEACHER        -> alleen groepen waar hij lid van is (ClassGroupMembership)
+//   IB             -> alle groepen van de eigen school (lezen + ondersteunen)
+//   SCHOOL_ADMIN   -> alle groepen van de eigen school + groepen/leden beheren
+//   QUALITY_STAFF  -> alle groepen van alle scholen van het eigen bestuur (lezen)
+//   BOARD          -> geen operationele groepsdetails; alleen resultaten/trends
+//   PLATFORM_ADMIN -> alles
+//
+// Bewerken van groepsinhoud (weekplannen) mag ALLEEN wie lid is van de groep,
+// ongeacht rol. IB/directie/kwaliteit kijken mee, maar schrijven niet in het
+// plan van de leerkracht.
+//
+// Dit bestand importeert niets uit Next.js, zodat het ook in scripts en tests
+// draait. De ingelogde gebruiker ophalen gebeurt in lib/current-actor.ts.
+//
+// Regel voor alle code die data ophaalt: ALTIJD via een scope hieronder of een
+// assert-functie. Nooit een losse findMany/findUnique op operationele data.
+
+import type { Prisma, PrismaClient, Role } from "../app/generated/prisma/client";
+
+export type Db = PrismaClient | Prisma.TransactionClient;
+
+export type Actor = {
+  userId: string;
+  role: Role;
+  organizationId: string | null;
+  schoolId: string | null;
+};
+
+export class AccessError extends Error {
+  constructor(
+    public readonly status: 401 | 403 | 404,
+    message: string
+  ) {
+    super(message);
+    this.name = "AccessError";
+  }
+}
+
+// Een filter dat nooit iets oplevert. Gebruikt als "geen toegang".
+const NOTHING = { id: { in: [] as string[] } };
+
+// ---------- Scopes (Prisma where-filters) ----------
+
+/** Welke groepen deze gebruiker mag ZIEN. */
+export function classGroupScope(actor: Actor): Prisma.ClassGroupWhereInput {
+  const { role, organizationId, schoolId, userId } = actor;
+
+  switch (role) {
+    case "PLATFORM_ADMIN":
+      return {};
+
+    case "TEACHER":
+      if (!organizationId) return NOTHING;
+      return { organizationId, memberships: { some: { userId } } };
+
+    case "IB":
+    case "SCHOOL_ADMIN":
+      if (!organizationId || !schoolId) return NOTHING;
+      return { organizationId, schoolId };
+
+    case "QUALITY_STAFF":
+      if (!organizationId) return NOTHING;
+      return { organizationId };
+
+    case "BOARD":
+      // Bestuur ziet geen operationele groepsdetails, alleen aggregaties
+      // (zie schoolResultScope).
+      return NOTHING;
+
+    default:
+      return assertNever(role);
+  }
+}
+
+/** Welke weekplannen deze gebruiker mag ZIEN: die van groepen die hij mag zien. */
+export function weekPlanScope(actor: Actor): Prisma.WeekPlanWhereInput {
+  if (actor.role === "PLATFORM_ADMIN") return {};
+  if (actor.role === "BOARD" || !actor.organizationId) return NOTHING;
+  return {
+    organizationId: actor.organizationId,
+    classGroup: classGroupScope(actor),
+  };
+}
+
+/** Welke groepsgemiddelden (SchoolResult) deze gebruiker mag zien. Geen leerlingdata. */
+export function schoolResultScope(actor: Actor): Prisma.SchoolResultWhereInput {
+  const { role, organizationId, schoolId } = actor;
+
+  switch (role) {
+    case "PLATFORM_ADMIN":
+      return {};
+
+    case "BOARD":
+    case "QUALITY_STAFF":
+      if (!organizationId) return NOTHING;
+      return { organizationId };
+
+    case "IB":
+    case "SCHOOL_ADMIN":
+      if (!organizationId || !schoolId) return NOTHING;
+      return { organizationId, schoolId };
+
+    case "TEACHER":
+      return NOTHING;
+
+    default:
+      return assertNever(role);
+  }
+}
+
+// ---------- Asserts (gooien AccessError) ----------
+// 404 als iets buiten je scope valt: we verraden niet dat het bestaat.
+// 403 als je het wel mag zien, maar deze actie niet mag doen.
+
+type GroupRef = { id: string; schoolId: string; organizationId: string };
+
+/** Mag deze gebruiker deze groep zien? Geeft de groep terug. */
+export async function assertCanViewClassGroup(
+  db: Db,
+  actor: Actor,
+  classGroupId: string
+): Promise<GroupRef> {
+  const group = await db.classGroup.findFirst({
+    where: { AND: [{ id: classGroupId }, classGroupScope(actor)] },
+    select: { id: true, schoolId: true, organizationId: true },
+  });
+  if (!group) throw new AccessError(404, "Groep niet gevonden.");
+  return group;
+}
+
+/**
+ * Mag deze gebruiker inhoud (weekplannen) voor deze groep maken of wijzigen?
+ * Alleen leden van de groep. Gebruik de teruggegeven schoolId/organizationId
+ * bij het aanmaken van een WeekPlan, NOOIT waarden uit het formulier.
+ */
+export async function assertCanEditClassGroupContent(
+  db: Db,
+  actor: Actor,
+  classGroupId: string
+): Promise<GroupRef> {
+  const group = await assertCanViewClassGroup(db, actor, classGroupId);
+
+  const membership = await db.classGroupMembership.findUnique({
+    where: { userId_classGroupId: { userId: actor.userId, classGroupId } },
+    select: { id: true },
+  });
+  if (!membership || group.organizationId !== actor.organizationId) {
+    throw new AccessError(
+      403,
+      "Alleen leerkrachten van deze groep kunnen dit bewerken."
+    );
+  }
+  return group;
+}
+
+/** Mag deze gebruiker dit weekplan zien? */
+export async function assertCanViewWeekPlan(db: Db, actor: Actor, weekPlanId: string) {
+  const plan = await db.weekPlan.findFirst({
+    where: { AND: [{ id: weekPlanId }, weekPlanScope(actor)] },
+    select: { id: true, classGroupId: true, schoolId: true, organizationId: true },
+  });
+  if (!plan) throw new AccessError(404, "Weekplan niet gevonden.");
+  return plan;
+}
+
+/** Mag deze gebruiker dit weekplan wijzigen? */
+export async function assertCanEditWeekPlan(db: Db, actor: Actor, weekPlanId: string) {
+  const plan = await assertCanViewWeekPlan(db, actor, weekPlanId);
+  await assertCanEditClassGroupContent(db, actor, plan.classGroupId);
+  return plan;
+}
+
+/**
+ * Mag deze gebruiker groepen en groepsleden beheren op deze school?
+ * SCHOOL_ADMIN van die school, of PLATFORM_ADMIN. Geeft de school terug;
+ * gebruik school.organizationId bij het aanmaken van een ClassGroup.
+ */
+export async function assertCanManageSchoolGroups(
+  db: Db,
+  actor: Actor,
+  schoolId: string
+): Promise<{ id: string; organizationId: string }> {
+  const school = await db.school.findUnique({
+    where: { id: schoolId },
+    select: { id: true, organizationId: true },
+  });
+
+  if (actor.role === "PLATFORM_ADMIN") {
+    if (!school) throw new AccessError(404, "School niet gevonden.");
+    return school;
+  }
+
+  // Buiten je eigen bestuur: doen alsof de school niet bestaat.
+  if (!school || school.organizationId !== actor.organizationId) {
+    throw new AccessError(404, "School niet gevonden.");
+  }
+  if (actor.role !== "SCHOOL_ADMIN" || actor.schoolId !== schoolId) {
+    throw new AccessError(403, "Alleen de schoolleiding kan groepen beheren.");
+  }
+  return school;
+}
+
+/**
+ * Mag deze gebruiker `memberUserId` aan deze groep koppelen?
+ * Beheerrecht op de school van de groep, en het nieuwe lid hoort bij
+ * dezelfde school (en dus hetzelfde bestuur). Zo kan een koppeling nooit
+ * een lek tussen scholen of besturen openen.
+ */
+export async function assertCanAddGroupMember(
+  db: Db,
+  actor: Actor,
+  classGroupId: string,
+  memberUserId: string
+): Promise<GroupRef> {
+  const group = await db.classGroup.findUnique({
+    where: { id: classGroupId },
+    select: { id: true, schoolId: true, organizationId: true },
+  });
+  if (!group) throw new AccessError(404, "Groep niet gevonden.");
+
+  await assertCanManageSchoolGroups(db, actor, group.schoolId);
+
+  const member = await db.user.findUnique({
+    where: { id: memberUserId },
+    select: { organizationId: true, schoolId: true },
+  });
+  if (
+    !member ||
+    member.organizationId !== group.organizationId ||
+    member.schoolId !== group.schoolId
+  ) {
+    throw new AccessError(
+      403,
+      "Deze gebruiker hoort niet bij de school van deze groep."
+    );
+  }
+  return group;
+}
+
+function assertNever(x: never): never {
+  throw new Error(`Onbekende rol: ${String(x)}`);
+}
