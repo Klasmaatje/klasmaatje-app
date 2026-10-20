@@ -10,6 +10,8 @@ import { deleteLesson } from "../actions";
 import DetailsForm from "./details-form";
 import AddLessonForm from "./add-lesson-form";
 import DeletePlanButton from "./delete-plan-button";
+import DraftButton from "./draft-button";
+import { geminiConfigured } from "@/lib/ai/providers/gemini";
 
 type Entry = {
   id: string;
@@ -134,6 +136,15 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
         )}
       </div>
 
+      {canEdit && isDraft && (
+        <div className="rounded-xl p-5 mb-4" style={{ background: "#FFF9EC", border: "1px solid #F3DFB2" }}>
+          <DraftButton
+            weekPlanId={plan.id}
+            providerLabel={geminiConfigured() ? "Gemini" : "oefenmodus (nog geen AI-sleutel, voorbeeldlessen)"}
+          />
+        </div>
+      )}
+
       {canEdit && (
         <div className="rounded-xl bg-white p-5 mb-4" style={{ border: "1px solid #E8DFF5" }}>
           <AddLessonForm
@@ -166,11 +177,16 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
                       <span className="font-medium">{e.time}</span> {e.label}
                     </div>
                     {e.goals && (e.goals.basis || e.goals.verlengd || e.goals.verrijking) && (
-                      <dl className="mt-1 flex flex-col gap-0.5" style={{ color: "#4A3B63" }}>
-                        {e.goals.basis && <div><dt className="inline font-medium">Basis: </dt><dd className="inline">{e.goals.basis}</dd></div>}
-                        {e.goals.verlengd && <div><dt className="inline font-medium">Verlengd: </dt><dd className="inline">{e.goals.verlengd}</dd></div>}
-                        {e.goals.verrijking && <div><dt className="inline font-medium">Verrijking: </dt><dd className="inline">{e.goals.verrijking}</dd></div>}
-                      </dl>
+                      <div className="mt-1" style={{ color: "#4A3B63" }}>
+                        {e.goals.basis && <p>{e.goals.basis}</p>}
+                        {(e.goals.verlengd || e.goals.verrijking) && (
+                          <details className="mt-0.5">
+                            <summary className="cursor-pointer" style={{ color: "#8B6FB3" }}>Verlengd en verrijking</summary>
+                            {e.goals.verlengd && <p className="mt-0.5"><span className="font-medium">Verlengd: </span>{e.goals.verlengd}</p>}
+                            {e.goals.verrijking && <p className="mt-0.5"><span className="font-medium">Verrijking: </span>{e.goals.verrijking}</p>}
+                          </details>
+                        )}
+                      </div>
                     )}
                     {canEdit && e.deletable && (
                       <form action={deleteLesson} className="absolute right-1 top-1">

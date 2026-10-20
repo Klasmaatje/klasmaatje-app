@@ -11,9 +11,23 @@ import {
 } from "@/lib/access";
 import { requireActor } from "@/lib/current-actor";
 import { resolveDayForGroup } from "@/lib/schedule-items";
-import { WEEKDAYS, parsePeriode } from "@/lib/week";
+import { WEEKDAYS, WEEKDAY_NL, formatPeriode, formatShortDate, parsePeriode, weekdayDates } from "@/lib/week";
+import { buildAllowList, privacyMessage, scanFields } from "@/lib/privacy";
+import { AiNotConfiguredError, generateWeekPlanDraft, pickProvider } from "@/lib/ai";
+import { freeBlocks, parseSlot } from "@/lib/ai/free-blocks";
+import type { DraftDay } from "@/lib/ai/types";
 
 export type FormState = { error?: string; ok?: string } | undefined;
+
+/** Bekende begrippen voor de privacycontrole: basislijst + methodes en naam van de school. */
+async function allowListForSchool(schoolId: string) {
+  const school = await prisma.school.findUnique({
+    where: { id: schoolId },
+    select: { name: true, methods: { select: { method: { select: { name: true, publisher: true } } } } },
+  });
+  const extra = [school?.name ?? "", ...(school?.methods ?? []).flatMap((m) => [m.method.name, m.method.publisher ?? ""])];
+  return buildAllowList(extra);
+}
 
 const MAX_THEMA = 120;
 const MAX_BIJZONDERHEDEN = 2000;
@@ -101,6 +115,8 @@ export async function updateWeekPlanDetails(_prev: FormState, formData: FormData
   try {
     const actor = await requireActor();
     const plan = await assertCanEditWeekPlan(prisma, actor, weekPlanId);
+    const privacy = scanFields({ Thema: thema, Bijzonderheden: bijzonderheden }, await allowListForSchool(plan.schoolId), ["block"]);
+    if (privacy.length > 0) return { error: privacyMessage(privacy) };
     await prisma.weekPlan.update({
       where: { id: plan.id },
       data: { thema: thema || null, bijzonderheden: bijzonderheden || null },
@@ -152,6 +168,12 @@ export async function addLesson(_prev: FormState, formData: FormData): Promise<F
       select: { startTime: true, endTime: true },
     });
     if (!day) return { error: "Op die dag is er geen school." };
+    const privacy = scanFields(
+      { Vak: subject, Basis: goals.goalBasis, Verlengd: goals.goalVerlengd, Verrijking: goals.goalVerrijking },
+      await allowListForSchool(plan.schoolId),
+      ["block"]
+    );
+    if (privacy.length > 0) return { error: privacyMessage(privacy) };
     if (start < day.startTime || end > day.endTime) {
       return { error: `Die dag duurt van ${day.startTime} tot ${day.endTime}.` };
     }
@@ -190,4 +212,107 @@ export async function deleteWeekPlan(formData: FormData): Promise<void> {
   await prisma.weekPlan.delete({ where: { id: plan.id } }); // lessen gaan mee (cascade)
   revalidatePath("/mijn-week");
   redirect("/mijn-week");
+}
+
+// ---------- AI-concept ----------
+
+/**
+ * Laat de AI lessen voorstellen voor de vrije blokken van dit weekplan.
+ * Volgorde: toegang -> privacycontrole op ALLE vrije tekst die meegaat ->
+ * aanbieder kiezen -> voorstel -> controle -> opslaan als gewone lessen.
+ * Bestaande lessen en vaste momenten blijven staan; het plan blijft Concept.
+ */
+export async function generateDraftLessons(_prev: FormState, formData: FormData): Promise<FormState> {
+  const weekPlanId = String(formData.get("weekPlanId") ?? "");
+  try {
+    const actor = await requireActor();
+    const ref = await assertCanEditWeekPlan(prisma, actor, weekPlanId);
+    const plan = await prisma.weekPlan.findUniqueOrThrow({
+      where: { id: ref.id },
+      include: {
+        classGroup: { select: { name: true, grades: true } },
+        lessons: { select: { dag: true, timeSlot: true, subject: true } },
+        organization: { select: { config: { select: { aiProvider: true } } } },
+        school: {
+          select: {
+            daySchedules: true,
+            methods: { select: { method: { select: { name: true, subject: true } } } },
+          },
+        },
+      },
+    });
+    if (plan.status !== "DRAFT") return { error: "Alleen een concept-weekplan kan een voorstel krijgen." };
+
+    // 1. Privacy: alles wat naar de aanbieder gaat, met het strengste niveau.
+    const privacy = scanFields(
+      { Thema: plan.thema, Bijzonderheden: plan.bijzonderheden },
+      await allowListForSchool(plan.schoolId),
+      ["block", "ai"]
+    );
+    if (privacy.length > 0) return { error: privacyMessage(privacy) };
+
+    // 2. Dagen met vaste momenten en vrije blokken.
+    const days: DraftDay[] = [];
+    for (const { weekday, date } of weekdayDates(plan.periode)) {
+      const sched = plan.school.daySchedules.find((d) => d.dayOfWeek === weekday);
+      if (!sched) continue;
+      const taken = plan.lessons.filter((l) => l.dag === weekday && l.timeSlot);
+      const occupied = taken.map((l) => parseSlot(l.timeSlot!)).filter((b): b is NonNullable<typeof b> => b !== null);
+      days.push({
+        weekday,
+        label: `${WEEKDAY_NL[weekday]} ${formatShortDate(date)}`,
+        startTime: sched.startTime,
+        endTime: sched.endTime,
+        fixed: taken
+          .map((l) => ({ time: l.timeSlot!, label: l.subject }))
+          .sort((a, b) => a.time.localeCompare(b.time)),
+        free: freeBlocks(sched.startTime, sched.endTime, occupied),
+      });
+    }
+    if (days.every((d) => d.free.length === 0)) {
+      return { error: "Er is geen vrije tijd meer in dit plan om lessen voor te stellen." };
+    }
+
+    // 3. Aanbieder en voorstel.
+    const provider = pickProvider(plan.organization.config?.aiProvider);
+    const result = await generateWeekPlanDraft(
+      {
+        groupName: plan.classGroup.name,
+        grades: plan.classGroup.grades,
+        weekLabel: formatPeriode(plan.periode),
+        thema: plan.thema,
+        bijzonderheden: plan.bijzonderheden,
+        methods: plan.school.methods.map((m) => m.method),
+        days,
+      },
+      provider
+    );
+
+    // 4. Opslaan als gewone lessen in het concept.
+    if (result.lessons.length > 0) {
+      await prisma.lesson.createMany({
+        data: result.lessons.map((l) => ({
+          weekPlanId: plan.id,
+          dag: l.dag,
+          timeSlot: `${l.start}-${l.end}`,
+          type: "les",
+          subject: l.subject,
+          goalBasis: l.goalBasis || null,
+          goalVerlengd: l.goalVerlengd || null,
+          goalVerrijking: l.goalVerrijking || null,
+          didacticStrategy: "EDI",
+        })),
+      });
+    }
+    revalidatePath(`/mijn-week/${plan.id}`);
+    const extra = result.skipped > 0 ? ` ${result.skipped} voorstel(len) vielen buiten de vrije tijd en zijn weggelaten.` : "";
+    return {
+      ok: `${result.lessons.length} lessen voorgesteld (${result.provider}). Controleer en pas aan; het plan blijft een concept.${extra}`,
+    };
+  } catch (e) {
+    if (e instanceof AccessError) return { error: e.message };
+    if (e instanceof AiNotConfiguredError) return { error: e.message };
+    console.error("AI-voorstel mislukt", e);
+    return { error: "Het voorstel kon niet worden gemaakt. Probeer het later opnieuw." };
+  }
 }
