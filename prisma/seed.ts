@@ -1,6 +1,8 @@
 import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { GLOBAL_METHODS } from "./data/methods";
+import { SCHEDULE_ITEM_TEMPLATES } from "./data/schedule-items";
+import { isValidDefaultTime } from "../lib/schedule-items";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -195,7 +197,8 @@ async function main() {
   // Naam = zoals de school de groep noemt; grades = leerjaren 1-8.
   // Bewust GEEN leerkrachtnamen: wie in welke groep werkt, loopt via
   // ClassGroupMembership zodra mensen een account hebben.
-  // SLS (Laksmi): formatie nog niet bekend, dus nog geen groepen.
+  // SLS (Laksmi): formatie 2026-2027 nog niet ontvangen; startset = indeling
+  // uit de conceptformatie 2024-2025. Directie bevestigt of corrigeert.
   const SCHOOL_YEAR = "2026/2027";
   const groupsBySchool: Record<string, { name: string; grades: number[] }[]> = {
     // SGS: "0/1/2" = kleutergroep incl. instromers; leerjaar 0 bestaat niet als jaarlaag.
@@ -240,6 +243,21 @@ async function main() {
       { name: "8a", grades: [8] },
       { name: "8b", grades: [8] },
     ],
+    // SLS: startset op basis van conceptformatie 2024-2025, nog te bevestigen.
+    SLS: [
+      { name: "1", grades: [1] },
+      { name: "2", grades: [2] },
+      { name: "3", grades: [3] },
+      { name: "4a", grades: [4] },
+      { name: "4b", grades: [4] },
+      { name: "5", grades: [5] },
+      { name: "6a", grades: [6] },
+      { name: "6b", grades: [6] },
+      { name: "7a", grades: [7] },
+      { name: "7b", grades: [7] },
+      { name: "8a", grades: [8] },
+      { name: "8b", grades: [8] },
+    ],
   };
 
   for (const school of schools) {
@@ -264,6 +282,38 @@ async function main() {
     }
   }
 
+  // ----- Vaste dagonderdelen (ScheduleItem) -----
+  // Startsjabloon per school; tijden zijn ankers op het dagrooster.
+  // Geen unieke sleutel in het schema, dus: bestaand item (school + label)
+  // bijwerken, anders aanmaken. Er wordt niets verwijderd.
+  for (const t of SCHEDULE_ITEM_TEMPLATES) {
+    if (!isValidDefaultTime(t.defaultTime)) {
+      throw new Error(`Ongeldige defaultTime voor "${t.label}": ${t.defaultTime}`);
+    }
+  }
+  for (const school of schools) {
+    for (const t of SCHEDULE_ITEM_TEMPLATES) {
+      const data = {
+        defaultTime: t.defaultTime,
+        category: t.category,
+        targetGrades: t.targetGrades,
+        sortOrder: t.sortOrder,
+        aiHint: t.aiHint,
+      };
+      const existing = await prisma.scheduleItem.findFirst({
+        where: { schoolId: school.id, label: t.label },
+        select: { id: true },
+      });
+      if (existing) {
+        await prisma.scheduleItem.update({ where: { id: existing.id }, data });
+      } else {
+        await prisma.scheduleItem.create({
+          data: { schoolId: school.id, label: t.label, ...data },
+        });
+      }
+    }
+  }
+
   const dayCount = await prisma.schoolDaySchedule.count();
   console.log("Seed klaar:");
   console.log("  Organisatie:", shon.name);
@@ -276,6 +326,10 @@ async function main() {
       where: { schoolId: school.id, schoolYear: SCHOOL_YEAR },
     });
     console.log(`  Groepen ${SCHOOL_YEAR} ${school.code}:`, count);
+  }
+  for (const school of schools) {
+    const count = await prisma.scheduleItem.count({ where: { schoolId: school.id } });
+    console.log(`  Vaste dagonderdelen ${school.code}:`, count);
   }
 }
 
