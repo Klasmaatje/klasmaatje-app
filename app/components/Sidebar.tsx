@@ -7,6 +7,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, CalendarDays, Sparkles, FolderOpen,
   ClipboardCheck, ChevronsLeft, ChevronsRight, GraduationCap, Users, LogOut,
+  ClipboardList, Clock,
 } from "lucide-react";
 import { authClient } from "../../lib/auth-client";
 
@@ -18,9 +19,10 @@ type SidebarProps = {
   accentColor: string;
   microAnalyseLabel: string;
   canManageGroups?: boolean;
+  canViewOverview?: boolean;
 };
 
-export default function Sidebar({ userName, roleLabel, organizationName, primaryColor, accentColor, microAnalyseLabel, canManageGroups = false }: SidebarProps) {
+export default function Sidebar({ userName, roleLabel, organizationName, primaryColor, accentColor, microAnalyseLabel, canManageGroups = false, canViewOverview = false }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
@@ -39,7 +41,13 @@ export default function Sidebar({ userName, roleLabel, organizationName, primary
     { href: "/lesassistent", label: "Lesassistent", icon: Sparkles },
     { href: "/materiaal", label: "Materiaal", icon: FolderOpen },
     { href: "/micro-analyse", label: microAnalyseLabel, icon: ClipboardCheck },
-    ...(canManageGroups ? [{ href: "/groepen", label: "Groepen", icon: Users }] : []),
+    ...(canViewOverview ? [{ href: "/weekplannen", label: "Weekplannen", icon: ClipboardList }] : []),
+    ...(canManageGroups
+      ? [
+          { href: "/groepen", label: "Groepen", icon: Users },
+          { href: "/schoolrooster", label: "Schoolrooster", icon: Clock },
+        ]
+      : []),
   ];
 
   return (

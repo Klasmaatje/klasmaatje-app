@@ -5,7 +5,7 @@
 // namen van leerkrachten of leerlingen en geen lesinhoud.
 // Tijden zijn ankers op het dagrooster (SchoolDaySchedule), zie
 // lib/schedule-items.ts voor de notatie. Directies kunnen dit per school
-// aanpassen; de seed werkt bij en verwijdert niets.
+// aanpassen via /schoolrooster; de seed vult alleen een school zonder items.
 
 export type ScheduleItemTemplate = {
   label: string;

@@ -31,8 +31,8 @@ async function main() {
   // De ECHTE tijden staan als dagroosters (SchoolDaySchedule); rosterType is
   // slechts een label/onboarding-sjabloon. SHON heeft scholen in meerdere
   // steden met verschillende roosters. Bron: schoolgidsen (2022-23 voor
-  // Ganesha/Krishna/Saraswatie; 2025-26 voor Vishnu/Laksmi). Directies kunnen
-  // dit later zelf bijwerken via het instellingenscherm.
+  // Ganesha/Krishna/Saraswatie; 2025-26 voor Vishnu/Laksmi). Directies werken
+  // dit zelf bij via /schoolrooster; de seed vult alleen een lege school.
   type DaySpec = {
     startTime: string;
     endTime: string;
@@ -122,25 +122,13 @@ async function main() {
     });
     schools.push(school);
 
-    for (const d of s.days) {
-      await prisma.schoolDaySchedule.upsert({
-        where: {
-          schoolId_dayOfWeek: { schoolId: school.id, dayOfWeek: d.dayOfWeek },
-        },
-        update: {
-          startTime: d.startTime,
-          endTime: d.endTime,
-          breakStart: d.breakStart,
-          breakEnd: d.breakEnd,
-        },
-        create: {
-          schoolId: school.id,
-          dayOfWeek: d.dayOfWeek,
-          startTime: d.startTime,
-          endTime: d.endTime,
-          breakStart: d.breakStart,
-          breakEnd: d.breakEnd,
-        },
+    // Alleen voor een school zonder schooltijden: daarna beheert de directie
+    // ze zelf via /schoolrooster en mag de seed niets overschrijven (ook geen
+    // dag terugzetten die de school bewust leeg heeft gelaten).
+    const hasDays = (await prisma.schoolDaySchedule.count({ where: { schoolId: school.id } })) > 0;
+    if (!hasDays) {
+      await prisma.schoolDaySchedule.createMany({
+        data: s.days.map((d) => ({ schoolId: school.id, ...d })),
       });
     }
   }
@@ -280,35 +268,28 @@ async function main() {
   }
 
   // ----- Vaste dagonderdelen (ScheduleItem) -----
-  // Startsjabloon per school; tijden zijn ankers op het dagrooster.
-  // Geen unieke sleutel in het schema, dus: bestaand item (school + label)
-  // bijwerken, anders aanmaken. Er wordt niets verwijderd.
+  // Startsjabloon voor een school die nog GEEN vaste dagonderdelen heeft.
+  // Daarna beheert de directie ze zelf via /schoolrooster: de seed werkt
+  // bestaande items niet meer bij en zet verwijderde items niet terug.
   for (const t of SCHEDULE_ITEM_TEMPLATES) {
     if (!isValidDefaultTime(t.defaultTime)) {
       throw new Error(`Ongeldige defaultTime voor "${t.label}": ${t.defaultTime}`);
     }
   }
   for (const school of schools) {
-    for (const t of SCHEDULE_ITEM_TEMPLATES) {
-      const data = {
+    const hasItems = (await prisma.scheduleItem.count({ where: { schoolId: school.id } })) > 0;
+    if (hasItems) continue;
+    await prisma.scheduleItem.createMany({
+      data: SCHEDULE_ITEM_TEMPLATES.map((t) => ({
+        schoolId: school.id,
+        label: t.label,
         defaultTime: t.defaultTime,
         category: t.category,
         targetGrades: t.targetGrades,
         sortOrder: t.sortOrder,
         aiHint: t.aiHint,
-      };
-      const existing = await prisma.scheduleItem.findFirst({
-        where: { schoolId: school.id, label: t.label },
-        select: { id: true },
-      });
-      if (existing) {
-        await prisma.scheduleItem.update({ where: { id: existing.id }, data });
-      } else {
-        await prisma.scheduleItem.create({
-          data: { schoolId: school.id, label: t.label, ...data },
-        });
-      }
-    }
+      })),
+    });
   }
 
   const dayCount = await prisma.schoolDaySchedule.count();

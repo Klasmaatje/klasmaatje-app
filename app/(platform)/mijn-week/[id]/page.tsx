@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { AccessError, assertCanViewWeekPlan, weekPlanScope } from "@/lib/access";
+import { AccessError, assertCanViewWeekPlan, canViewWeekPlanOverview, weekPlanScope } from "@/lib/access";
 import { requireActor } from "@/lib/current-actor";
 import { resolveDayForGroup } from "@/lib/schedule-items";
 import { WEEKDAY_NL, formatPeriode, formatShortDate, weekdayDates } from "@/lib/week";
@@ -112,7 +112,11 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="max-w-6xl">
-      <Link href="/mijn-week" className="text-sm" style={{ color: "#8B6FB3" }}>← Mijn Week</Link>
+      {!canEdit && canViewWeekPlanOverview(actor.role) ? (
+        <Link href="/weekplannen" className="text-sm" style={{ color: "#8B6FB3" }}>← Weekplannen</Link>
+      ) : (
+        <Link href="/mijn-week" className="text-sm" style={{ color: "#8B6FB3" }}>← Mijn Week</Link>
+      )}
 
       <div className="flex flex-wrap items-center gap-3 mt-2 mb-1">
         <h1 className="text-2xl font-semibold" style={{ color: "#1F1730" }}>Groep {plan.classGroup.name}</h1>

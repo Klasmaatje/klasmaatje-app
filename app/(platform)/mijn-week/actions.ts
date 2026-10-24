@@ -12,22 +12,13 @@ import {
 import { requireActor } from "@/lib/current-actor";
 import { resolveDayForGroup } from "@/lib/schedule-items";
 import { WEEKDAYS, WEEKDAY_NL, formatPeriode, formatShortDate, parsePeriode, weekdayDates } from "@/lib/week";
-import { buildAllowList, privacyMessage, scanFields } from "@/lib/privacy";
+import { privacyMessage, scanFields } from "@/lib/privacy";
+import { allowListForSchool } from "@/lib/school-allowlist";
 import { AiNotConfiguredError, generateWeekPlanDraft, pickProvider } from "@/lib/ai";
 import { freeBlocks, parseSlot } from "@/lib/ai/free-blocks";
 import type { DraftDay } from "@/lib/ai/types";
 
 export type FormState = { error?: string; ok?: string } | undefined;
-
-/** Bekende begrippen voor de privacycontrole: basislijst + methodes en naam van de school. */
-async function allowListForSchool(schoolId: string) {
-  const school = await prisma.school.findUnique({
-    where: { id: schoolId },
-    select: { name: true, methods: { select: { method: { select: { name: true, publisher: true } } } } },
-  });
-  const extra = [school?.name ?? "", ...(school?.methods ?? []).flatMap((m) => [m.method.name, m.method.publisher ?? ""])];
-  return buildAllowList(extra);
-}
 
 const MAX_THEMA = 120;
 const MAX_BIJZONDERHEDEN = 2000;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { classGroupScope, weekPlanScope } from "@/lib/access";
+import { canViewWeekPlanOverview, classGroupScope, weekPlanScope } from "@/lib/access";
 import { requireActor } from "@/lib/current-actor";
 import { formatPeriode, schoolYearOf, todayInNetherlands, upcomingWeeks } from "@/lib/week";
 import NewPlanForm from "./new-plan-form";
@@ -47,6 +47,8 @@ export default async function MijnWeekPage() {
           <p className="text-sm" style={{ color: "#6B5A85" }}>
             {canManage ? (
               <>Koppel jezelf of een collega aan een groep via <Link href="/groepen" className="underline">Groepen</Link>.</>
+            ) : canViewWeekPlanOverview(actor.role) ? (
+              <>Meekijken met de weekplannen van de groepen kan via <Link href="/weekplannen" className="underline">Weekplannen</Link>.</>
             ) : (
               <>De schoolleiding koppelt je aan je groep. Daarna zie je hier je groep en kun je een weekplan maken.</>
             )}

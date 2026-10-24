@@ -174,14 +174,15 @@ export async function assertCanEditWeekPlan(db: Db, actor: Actor, weekPlanId: st
 }
 
 /**
- * Mag deze gebruiker groepen en groepsleden beheren op deze school?
- * SCHOOL_ADMIN van die school, of PLATFORM_ADMIN. Geeft de school terug;
- * gebruik school.organizationId bij het aanmaken van een ClassGroup.
+ * Schoolbeheer: SCHOOL_ADMIN van die school, of PLATFORM_ADMIN.
+ * Buiten het eigen bestuur doen we alsof de school niet bestaat (404);
+ * binnen het bestuur maar zonder beheerrecht: 403 met `forbiddenMessage`.
  */
-export async function assertCanManageSchoolGroups(
+async function assertSchoolAdmin(
   db: Db,
   actor: Actor,
-  schoolId: string
+  schoolId: string,
+  forbiddenMessage: string
 ): Promise<{ id: string; organizationId: string }> {
   const school = await db.school.findUnique({
     where: { id: schoolId },
@@ -193,14 +194,61 @@ export async function assertCanManageSchoolGroups(
     return school;
   }
 
-  // Buiten je eigen bestuur: doen alsof de school niet bestaat.
   if (!school || school.organizationId !== actor.organizationId) {
     throw new AccessError(404, "School niet gevonden.");
   }
   if (actor.role !== "SCHOOL_ADMIN" || actor.schoolId !== schoolId) {
-    throw new AccessError(403, "Alleen de schoolleiding kan groepen beheren.");
+    throw new AccessError(403, forbiddenMessage);
   }
   return school;
+}
+
+/**
+ * Mag deze gebruiker groepen en groepsleden beheren op deze school?
+ * SCHOOL_ADMIN van die school, of PLATFORM_ADMIN. Geeft de school terug;
+ * gebruik school.organizationId bij het aanmaken van een ClassGroup.
+ */
+export function assertCanManageSchoolGroups(db: Db, actor: Actor, schoolId: string) {
+  return assertSchoolAdmin(db, actor, schoolId, "Alleen de schoolleiding kan groepen beheren.");
+}
+
+/**
+ * Mag deze gebruiker het schoolrooster beheren (schooltijden per dag en vaste
+ * dagonderdelen)? Zelfde regel als groepen beheren.
+ */
+export function assertCanManageSchoolSchedule(db: Db, actor: Actor, schoolId: string) {
+  return assertSchoolAdmin(db, actor, schoolId, "Alleen de schoolleiding kan het schoolrooster aanpassen.");
+}
+
+/**
+ * Mag deze gebruiker dit vaste dagonderdeel wijzigen of verwijderen?
+ * De school komt uit het item zelf, nooit uit het formulier.
+ */
+export async function assertCanManageScheduleItem(
+  db: Db,
+  actor: Actor,
+  scheduleItemId: string
+): Promise<{ id: string; schoolId: string }> {
+  const item = await db.scheduleItem.findUnique({
+    where: { id: scheduleItemId },
+    select: { id: true, schoolId: true },
+  });
+  if (!item) throw new AccessError(404, "Dagonderdeel niet gevonden.");
+  await assertCanManageSchoolSchedule(db, actor, item.schoolId);
+  return item;
+}
+
+// ---------- Rolregels voor menu's en pagina's ----------
+// Alleen voor wat zichtbaar is; de echte check zit in de scopes en asserts.
+
+/** Schoolbeheer (groepen, schoolrooster). */
+export function canManageSchool(role: Role): boolean {
+  return role === "SCHOOL_ADMIN" || role === "PLATFORM_ADMIN";
+}
+
+/** Meekijken met alle weekplannen van de school (of het bestuur). */
+export function canViewWeekPlanOverview(role: Role): boolean {
+  return role === "IB" || role === "SCHOOL_ADMIN" || role === "QUALITY_STAFF" || role === "PLATFORM_ADMIN";
 }
 
 /**

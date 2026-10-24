@@ -22,6 +22,10 @@ import {
   assertCanEditWeekPlan,
   assertCanManageSchoolGroups,
   assertCanAddGroupMember,
+  assertCanManageSchoolSchedule,
+  assertCanManageScheduleItem,
+  canManageSchool,
+  canViewWeekPlanOverview,
 } from "../../lib/access";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
@@ -196,6 +200,36 @@ async function run(db: Db) {
   await expectStatus("directeur mag eigen leerkracht aan groep koppelen", () => assertCanAddGroupMember(db, director, gA1b.id, teacherNoGroup.userId), "ok");
   await expectStatus("directeur mag leerkracht andere school niet koppelen (403)", () => assertCanAddGroupMember(db, director, gA1b.id, teacherA2.userId), 403);
   await expectStatus("directeur mag leerkracht ander bestuur niet koppelen (403)", () => assertCanAddGroupMember(db, director, gA1b.id, teacherOrgB.userId), 403);
+
+  // --- 5. Schoolrooster beheren (schooltijden + vaste dagonderdelen) ---
+  console.log("\n5. Schoolrooster beheren");
+  const item = (schoolId: string) =>
+    db.scheduleItem.create({ data: { schoolId, label: "TEST gebed", defaultTime: "start/5" } });
+  const itemA1 = await item(schoolA1.id);
+  const itemA2 = await item(schoolA2.id);
+  const itemB1 = await item(schoolB1.id);
+  await expectStatus("directeur mag schoolrooster eigen school beheren", () => assertCanManageSchoolSchedule(db, director, schoolA1.id), "ok");
+  await expectStatus("directeur mag rooster andere school niet beheren (403)", () => assertCanManageSchoolSchedule(db, director, schoolA2.id), 403);
+  await expectStatus("directeur: rooster ander bestuur bestaat niet voor hem (404)", () => assertCanManageSchoolSchedule(db, director, schoolB1.id), 404);
+  await expectStatus("IB mag schoolrooster niet beheren (403)", () => assertCanManageSchoolSchedule(db, ib, schoolA1.id), 403);
+  await expectStatus("leerkracht mag schoolrooster niet beheren (403)", () => assertCanManageSchoolSchedule(db, teacher, schoolA1.id), 403);
+  await expectStatus("kwaliteitsmedewerker mag schoolrooster niet beheren (403)", () => assertCanManageSchoolSchedule(db, quality, schoolA1.id), 403);
+  await expectStatus("bestuur mag schoolrooster niet beheren (403)", () => assertCanManageSchoolSchedule(db, board, schoolA1.id), 403);
+  await expectStatus("platformbeheer mag elk schoolrooster beheren", () => assertCanManageSchoolSchedule(db, platform, schoolB1.id), "ok");
+  await expectStatus("directeur mag dagonderdeel eigen school wijzigen", () => assertCanManageScheduleItem(db, director, itemA1.id), "ok");
+  await expectStatus("directeur mag dagonderdeel andere school niet wijzigen (403)", () => assertCanManageScheduleItem(db, director, itemA2.id), 403);
+  await expectStatus("directeur: dagonderdeel ander bestuur bestaat niet (404)", () => assertCanManageScheduleItem(db, director, itemB1.id), 404);
+  await expectStatus("IB mag dagonderdeel niet wijzigen (403)", () => assertCanManageScheduleItem(db, ib, itemA1.id), 403);
+  await expectStatus("onbekend dagonderdeel (404)", () => assertCanManageScheduleItem(db, director, `${t}-bestaat-niet`), 404);
+
+  // --- 6. Menu- en paginaregels ---
+  console.log("\n6. Menu- en paginaregels");
+  check("schoolbeheer alleen voor directie en platformbeheer",
+    (["TEACHER", "IB", "SCHOOL_ADMIN", "QUALITY_STAFF", "BOARD", "PLATFORM_ADMIN"] as const)
+      .filter(canManageSchool).join() === "SCHOOL_ADMIN,PLATFORM_ADMIN");
+  check("weekplannen-overzicht voor IB, directie, kwaliteit en platformbeheer",
+    (["TEACHER", "IB", "SCHOOL_ADMIN", "QUALITY_STAFF", "BOARD", "PLATFORM_ADMIN"] as const)
+      .filter(canViewWeekPlanOverview).join() === "IB,SCHOOL_ADMIN,QUALITY_STAFF,PLATFORM_ADMIN");
 
 }
 
