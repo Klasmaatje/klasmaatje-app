@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { AccessError, assertCanViewWeekPlan, canViewWeekPlanOverview, weekPlanScope } from "@/lib/access";
+import { AccessError, assertCanViewWeekPlan, canApproveWeekPlans, canViewWeekPlanOverview, weekPlanScope } from "@/lib/access";
 import { requireActor } from "@/lib/current-actor";
 import { resolveDayForGroup } from "@/lib/schedule-items";
 import { WEEKDAY_NL, formatPeriode, formatShortDate, weekdayDates } from "@/lib/week";
-import { CATEGORY_STYLE, STATUS_LABEL } from "../labels";
+import { CATEGORY_STYLE } from "../labels";
+import StatusBadge from "../status-badge";
+import StatusPanel from "./status-panel";
+import { DRAFT, canDelete } from "@/lib/weekplan-status";
 import { deleteLesson } from "../actions";
 import DetailsForm from "./details-form";
 import AddLessonForm from "./add-lesson-form";
@@ -63,7 +66,25 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
     select: { id: true },
   });
   const canEdit = Boolean(membership);
-  const isDraft = plan.status === "DRAFT";
+  const isDraft = plan.status === DRAFT;
+  // Knop "Goedkeuren" alleen voor IB/directie van deze school die zelf geen lid
+  // van de groep zijn. De echte controle zit in assertCanApproveWeekPlan.
+  const canApproveHere =
+    !canEdit &&
+    canApproveWeekPlans(actor.role) &&
+    (actor.role === "PLATFORM_ADMIN" || actor.schoolId === plan.schoolId);
+  // Bij Ingediend en Goedgekeurd is updatedAt het moment van die stap: elke
+  // latere wijziging zet het plan terug op Concept.
+  const since = isDraft
+    ? null
+    : new Intl.DateTimeFormat("nl-NL", {
+        timeZone: "Europe/Amsterdam",
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(plan.updatedAt);
 
   const days = weekdayDates(plan.periode);
   // Vaste momenten zijn bij het aanmaken als Lesson-regels vastgelegd (snapshot).
@@ -120,14 +141,20 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
 
       <div className="flex flex-wrap items-center gap-3 mt-2 mb-1">
         <h1 className="text-2xl font-semibold" style={{ color: "#1F1730" }}>Groep {plan.classGroup.name}</h1>
-        <span className="text-xs font-medium rounded-full px-2.5 py-1" style={{ background: "#FFF4DC", color: "#8A5A00" }}>
-          {STATUS_LABEL[plan.status] ?? plan.status}
-        </span>
+        <StatusBadge status={plan.status} />
       </div>
       <p className="text-sm mb-6" style={{ color: "#6B5A85" }}>
         {formatPeriode(plan.periode)} · {plan.school.name} · gemaakt door {plan.user.name}
         {!canEdit && " · je kijkt mee (alleen lezen)"}
       </p>
+
+      <StatusPanel
+        weekPlanId={plan.id}
+        status={plan.status}
+        mode={canEdit ? "teacher" : canApproveHere ? "approver" : "viewer"}
+        lessonCount={lessonCount}
+        since={since}
+      />
 
       <div className="rounded-xl bg-white p-5 mb-4" style={{ border: "1px solid #E8DFF5" }}>
         {canEdit ? (
@@ -234,7 +261,7 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
           : "Dit plan toont de vaste momenten uit het actuele dagrooster van de school."}
       </p>
 
-      {canEdit && isDraft && (
+      {canEdit && canDelete(plan.status) && (
         <div className="mt-8 pt-4" style={{ borderTop: "1px solid #E8DFF5" }}>
           <DeletePlanButton weekPlanId={plan.id} />
         </div>

@@ -174,6 +174,35 @@ export async function assertCanEditWeekPlan(db: Db, actor: Actor, weekPlanId: st
 }
 
 /**
+ * Mag deze gebruiker dit weekplan goedkeuren?
+ * IB of SCHOOL_ADMIN van de school van het plan, of PLATFORM_ADMIN.
+ * Kwaliteit en bestuur kijken alleen mee. Wie zelf lid is van de groep keurt
+ * zijn eigen plan niet goed. Buiten je scope: 404 (via assertCanViewWeekPlan).
+ * Of de STATUS goedkeuren toelaat, controleert de actie (lib/weekplan-status.ts).
+ */
+export async function assertCanApproveWeekPlan(db: Db, actor: Actor, weekPlanId: string) {
+  const plan = await assertCanViewWeekPlan(db, actor, weekPlanId);
+
+  const sameSchool =
+    actor.role === "PLATFORM_ADMIN" ||
+    ((actor.role === "IB" || actor.role === "SCHOOL_ADMIN") &&
+      actor.schoolId === plan.schoolId &&
+      actor.organizationId === plan.organizationId);
+  if (!sameSchool) {
+    throw new AccessError(403, "Alleen IB of directie van deze school kan een weekplan goedkeuren.");
+  }
+
+  const membership = await db.classGroupMembership.findUnique({
+    where: { userId_classGroupId: { userId: actor.userId, classGroupId: plan.classGroupId } },
+    select: { id: true },
+  });
+  if (membership) {
+    throw new AccessError(403, "Je kunt een weekplan van je eigen groep niet zelf goedkeuren.");
+  }
+  return plan;
+}
+
+/**
  * Schoolbeheer: SCHOOL_ADMIN van die school, of PLATFORM_ADMIN.
  * Buiten het eigen bestuur doen we alsof de school niet bestaat (404);
  * binnen het bestuur maar zonder beheerrecht: 403 met `forbiddenMessage`.
@@ -249,6 +278,11 @@ export function canManageSchool(role: Role): boolean {
 /** Meekijken met alle weekplannen van de school (of het bestuur). */
 export function canViewWeekPlanOverview(role: Role): boolean {
   return role === "IB" || role === "SCHOOL_ADMIN" || role === "QUALITY_STAFF" || role === "PLATFORM_ADMIN";
+}
+
+/** Weekplannen goedkeuren (eigen school). Kwaliteit en bestuur alleen lezen. */
+export function canApproveWeekPlans(role: Role): boolean {
+  return role === "IB" || role === "SCHOOL_ADMIN" || role === "PLATFORM_ADMIN";
 }
 
 /**

@@ -26,7 +26,10 @@ import {
   assertCanManageScheduleItem,
   canManageSchool,
   canViewWeekPlanOverview,
+  assertCanApproveWeekPlan,
+  canApproveWeekPlans,
 } from "../../lib/access";
+import { canApprove, canDelete, canSubmit, statusAfterEdit } from "../../lib/weekplan-status";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -230,6 +233,35 @@ async function run(db: Db) {
   check("weekplannen-overzicht voor IB, directie, kwaliteit en platformbeheer",
     (["TEACHER", "IB", "SCHOOL_ADMIN", "QUALITY_STAFF", "BOARD", "PLATFORM_ADMIN"] as const)
       .filter(canViewWeekPlanOverview).join() === "IB,SCHOOL_ADMIN,QUALITY_STAFF,PLATFORM_ADMIN");
+  check("goedkeuren alleen voor IB, directie en platformbeheer",
+    (["TEACHER", "IB", "SCHOOL_ADMIN", "QUALITY_STAFF", "BOARD", "PLATFORM_ADMIN"] as const)
+      .filter(canApproveWeekPlans).join() === "IB,SCHOOL_ADMIN,PLATFORM_ADMIN");
+
+  // --- 7. Weekplan goedkeuren ---
+  console.log("\n7. Weekplan goedkeuren");
+  await expectStatus("IB mag plan eigen school goedkeuren", () => assertCanApproveWeekPlan(db, ib, wpA1a.id), "ok");
+  await expectStatus("directeur mag plan eigen school goedkeuren", () => assertCanApproveWeekPlan(db, director, wpA1a.id), "ok");
+  await expectStatus("platformbeheer mag elk plan goedkeuren", () => assertCanApproveWeekPlan(db, platform, wpB1.id), "ok");
+  await expectStatus("leerkracht mag eigen plan niet goedkeuren (403)", () => assertCanApproveWeekPlan(db, teacher, wpA1a.id), 403);
+  await expectStatus("duo-partner mag plan niet goedkeuren (403)", () => assertCanApproveWeekPlan(db, duo, wpA1a.id), 403);
+  await expectStatus("kwaliteitsmedewerker kijkt mee maar keurt niet goed (403)", () => assertCanApproveWeekPlan(db, quality, wpA2.id), 403);
+  await expectStatus("IB: plan andere school bestaat niet voor hem (404)", () => assertCanApproveWeekPlan(db, ib, wpA2.id), 404);
+  await expectStatus("IB ander bestuur: plan bestaat niet (404)", () => assertCanApproveWeekPlan(db, ibOrgB, wpA1a.id), 404);
+  await expectStatus("bestuur mag niet goedkeuren (404)", () => assertCanApproveWeekPlan(db, board, wpA1a.id), 404);
+  await expectStatus("leerkracht zonder groep: plan bestaat niet (404)", () => assertCanApproveWeekPlan(db, teacherNoGroup, wpA1a.id), 404);
+  // IB die zelf in een groep staat, keurt dat plan niet zelf goed.
+  await db.classGroupMembership.create({ data: { userId: ib.userId, classGroupId: gA1b.id } });
+  const wpA1b = await plan(gA1b.id, schoolA1.id, orgA.id, ib.userId);
+  await expectStatus("IB keurt plan van eigen groep niet zelf goed (403)", () => assertCanApproveWeekPlan(db, ib, wpA1b.id), 403);
+  await expectStatus("directeur mag dat plan wel goedkeuren", () => assertCanApproveWeekPlan(db, director, wpA1b.id), "ok");
+
+  console.log("\n8. Statusregels");
+  check("concept met lessen mag worden ingediend", canSubmit("DRAFT", 3));
+  check("concept zonder lessen mag niet worden ingediend", !canSubmit("DRAFT", 0));
+  check("ingediend plan niet nog eens indienen", !canSubmit("SUBMITTED", 3));
+  check("alleen ingediend plan goedkeuren", canApprove("SUBMITTED") && !canApprove("DRAFT") && !canApprove("APPROVED"));
+  check("alleen concept verwijderen", canDelete("DRAFT") && !canDelete("SUBMITTED") && !canDelete("APPROVED"));
+  check("wijziging zet plan terug op concept", statusAfterEdit() === "DRAFT");
 
 }
 

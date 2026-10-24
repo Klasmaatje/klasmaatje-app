@@ -1,9 +1,4 @@
-export const STATUS_LABEL: Record<string, string> = {
-  DRAFT: "Concept",
-  REVIEWED: "Bekeken",
-  APPROVED: "Goedgekeurd",
-  ARCHIVED: "Gearchiveerd",
-};
+export { STATUS_LABEL } from "@/lib/weekplan-status";
 
 export const CATEGORY_STYLE: Record<string, { background: string; color: string; border?: string }> = {
   routine: { background: "#EEE7F9", color: "#3D2467" },

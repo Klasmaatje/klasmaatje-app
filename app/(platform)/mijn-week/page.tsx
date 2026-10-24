@@ -4,7 +4,7 @@ import { canViewWeekPlanOverview, classGroupScope, weekPlanScope } from "@/lib/a
 import { requireActor } from "@/lib/current-actor";
 import { formatPeriode, schoolYearOf, todayInNetherlands, upcomingWeeks } from "@/lib/week";
 import NewPlanForm from "./new-plan-form";
-import { STATUS_LABEL } from "./labels";
+import StatusBadge from "./status-badge";
 
 export default async function MijnWeekPage() {
   const actor = await requireActor();
@@ -80,9 +80,7 @@ export default async function MijnWeekPage() {
                           {formatPeriode(p.periode)}
                           {p.thema && <span className="font-normal" style={{ color: "#6B5A85" }}> · {p.thema}</span>}
                         </span>
-                        <span className="text-xs font-medium rounded-full px-2.5 py-1" style={{ background: "#FFF4DC", color: "#8A5A00" }}>
-                          {STATUS_LABEL[p.status] ?? p.status}
-                        </span>
+                        <StatusBadge status={p.status} />
                       </Link>
                     </li>
                   ))}

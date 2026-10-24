@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { canViewWeekPlanOverview, classGroupScope, weekPlanScope } from "@/lib/access";
 import { requireActor } from "@/lib/current-actor";
 import { formatPeriode, isoWeekOf, parsePeriode, periodeKey, schoolYearOf, todayInNetherlands } from "@/lib/week";
-import { STATUS_LABEL } from "../mijn-week/labels";
+import StatusBadge from "../mijn-week/status-badge";
 
 // Weekplannen-overzicht voor IB, directie en kwaliteit: meekijken, alleen lezen.
 // Bewust neutraal ("maatje, geen controleur"): geen tellingen, percentages of
@@ -24,14 +24,6 @@ function Notice({ title, text }: { title: string; text: string }) {
         <p className="text-sm" style={{ color: "#6B5A85" }}>{text}</p>
       </div>
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span className="text-xs font-medium rounded-full px-2.5 py-1 whitespace-nowrap" style={{ background: "#FFF4DC", color: "#8A5A00" }}>
-      {STATUS_LABEL[status] ?? status}
-    </span>
   );
 }
 
