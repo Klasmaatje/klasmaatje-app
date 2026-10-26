@@ -4,6 +4,10 @@
 // Draaien (op de laptop, sleutels staan alleen in .env):
 //   npx tsx prisma/scripts/compare-providers.ts           -> OpenAI en Claude
 //   npx tsx prisma/scripts/compare-providers.ts --proef   -> zonder sleutels, twee keer oefenmodus (test van het script)
+//   npx tsx prisma/scripts/compare-providers.ts --herhaal vergelijking/<map> <casus> <A|B>
+//        -> één uitkomst opnieuw laten maken (bijv. na een fout). Blijft blind: de aanbieder
+//           wordt uit sleutel.json gelezen maar niet getoond. Nieuwe uitkomst als
+//           casus-<n>-<letter>-poging-<k>.md; extra regel in metingen.csv (telt mee in kosten).
 //
 // Uitsluitend FICTIEVE testgegevens: fictieve school, groepen en rooster. Geen database,
 // geen leerlinggegevens, geen SHON-informatie naar de API's.
@@ -20,9 +24,10 @@
 // (opzoeken op het moment van testen); zonder prijzen blijft de kolom leeg.
 
 import "dotenv/config";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomInt } from "node:crypto";
+import { NoObjectGeneratedError } from "ai";
 import { generateLessonPackage, generateWeekPlanDraft } from "../../lib/ai";
 import { renderLessonMarkdown, type LessonRequest } from "../../lib/ai/lesson";
 import { openaiConfigured, openaiProvider } from "../../lib/ai/providers/openai";
@@ -166,6 +171,18 @@ type Result = {
   markdown: string;
 };
 
+/** Foutmelding met reden (bijv. afgekapt door het lengteplafond) en tokens, zonder inhoud. */
+function describeError(e: unknown): { error: string; outputTokens?: number; inputTokens?: number } {
+  if (NoObjectGeneratedError.isInstance(e)) {
+    return {
+      error: `${e.message} Reden: ${e.finishReason ?? "onbekend"}${e.finishReason === "length" ? " (lengteplafond bereikt)" : ""}.`,
+      inputTokens: e.usage?.inputTokens,
+      outputTokens: e.usage?.outputTokens,
+    };
+  }
+  return { error: e instanceof Error ? e.message.slice(0, 300) : String(e) };
+}
+
 function words(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
@@ -266,7 +283,66 @@ function renderRubric(stamp: string): string {
   return lines.join("\n");
 }
 
+/** Eén uitkomst opnieuw laten maken, blind (aanbieder niet tonen). */
+async function retry(dir: string, casus: number, letter: "A" | "B") {
+  const key = JSON.parse(readFileSync(join(dir, "sleutel.json"), "utf8")) as { casus: number; uitkomst: string; aanbieder: string }[];
+  const entry = key.find((k) => k.casus === casus && k.uitkomst === letter);
+  if (!entry) throw new Error(`Casus ${casus} uitkomst ${letter} niet gevonden in ${dir}.`);
+  const run: Run = entry.aanbieder === openaiProvider.name
+    ? { provider: openaiProvider, key: "openai" }
+    : entry.aanbieder === anthropicProvider.name
+      ? { provider: anthropicProvider, key: "anthropic" }
+      : { provider: mockProvider, key: "proef1" };
+  const caseIndex = casus - 1;
+  const isLesson = caseIndex >= CASES.length;
+  const title = isLesson ? LESSON_CASES[caseIndex - CASES.length]?.title : CASES[caseIndex]?.title;
+  if (!title) throw new Error(`Casus ${casus} bestaat niet.`);
+  let attempt = 2;
+  while (true) {
+    try { readFileSync(join(dir, `casus-${casus}-${letter}-poging-${attempt}.md`)); attempt++; } catch { break; }
+  }
+  process.stdout.write(`  casus ${casus} uitkomst ${letter}, poging ${attempt} ... `);
+  const t0 = performance.now();
+  let row: Result;
+  try {
+    if (isLesson) {
+      const c = LESSON_CASES[caseIndex - CASES.length];
+      const out = await generateLessonPackage(c.request, run.provider);
+      row = { caseIndex, letter, run, ms: performance.now() - t0, inputTokens: out.usage?.inputTokens, outputTokens: out.usage?.outputTokens,
+        accepted: out.notes.length === 0 ? 1 : 0, skipped: out.notes.length, markdown: renderLessonMarkdown(`${c.title} (poging ${attempt})`, c.request, letter, out.pkg, out.notes) };
+    } else {
+      const c = CASES[caseIndex];
+      const out = await generateWeekPlanDraft(c.request, run.provider);
+      row = { caseIndex, letter, run, ms: performance.now() - t0, inputTokens: out.usage?.inputTokens, outputTokens: out.usage?.outputTokens,
+        accepted: out.lessons.length, skipped: out.skipped, markdown: renderPlan(`${c.title} (poging ${attempt})`, c.request, letter, out.lessons, out.skipped) };
+    }
+    console.log(`klaar (${(row.ms / 1000).toFixed(1)} s)`);
+  } catch (e) {
+    const { error, inputTokens, outputTokens } = describeError(e);
+    row = { caseIndex, letter, run, ms: performance.now() - t0, inputTokens, outputTokens, accepted: 0, skipped: 0, error, markdown: `# ${title}: uitkomst ${letter} (poging ${attempt})\n\nGeen uitkomst: fout bij de aanbieder.\n` };
+    console.log("fout (zie metingen.csv)");
+  }
+  writeFileSync(join(dir, `casus-${casus}-${letter}-poging-${attempt}.md`), row.markdown);
+  appendFileSync(
+    join(dir, "metingen.csv"),
+    "\n" + [casus, isLesson ? "lespakket" : "weekplanning", `${letter} (poging ${attempt})`, (row.ms / 1000).toFixed(1), row.inputTokens ?? "", row.outputTokens ?? "", costUsd(row),
+      row.error ? "" : words(row.markdown), row.accepted, row.skipped, (row.error ?? "").replace(/[;\n]/g, " ")].join(";")
+  );
+  console.log(`Klaar. Nieuwe uitkomst: ${join(dir, `casus-${casus}-${letter}-poging-${attempt}.md`)}`);
+}
+
 async function main() {
+  const h = process.argv.indexOf("--herhaal");
+  if (h !== -1) {
+    const [dir, casus, letter] = process.argv.slice(h + 1, h + 4);
+    if (!dir || !casus || (letter !== "A" && letter !== "B")) {
+      console.error("Gebruik: --herhaal vergelijking/<map> <casus> <A|B>");
+      process.exitCode = 1;
+      return;
+    }
+    await retry(dir, Number(casus), letter);
+    return;
+  }
   const proef = process.argv.includes("--proef");
   const runs: Run[] = proef
     ? [{ provider: mockProvider, key: "proef1" }, { provider: mockProvider, key: "proef2" }]
@@ -306,8 +382,8 @@ async function main() {
         console.log(`klaar (${(ms / 1000).toFixed(1)} s, ${out.lessons.length} lessen)`);
       } catch (e) {
         const ms = performance.now() - t0;
-        const error = e instanceof Error ? e.message.slice(0, 300) : String(e);
-        results.push({ caseIndex, letter, run, ms, accepted: 0, skipped: 0, error, markdown: `# ${c.title}: uitkomst ${letter}\n\nGeen uitkomst: fout bij de aanbieder.\n` });
+        const { error, inputTokens, outputTokens } = describeError(e);
+        results.push({ caseIndex, letter, run, ms, inputTokens, outputTokens, accepted: 0, skipped: 0, error, markdown: `# ${c.title}: uitkomst ${letter}\n\nGeen uitkomst: fout bij de aanbieder.\n` });
         console.log("fout (zie metingen.csv)");
       }
     }
@@ -332,8 +408,8 @@ async function main() {
         console.log(`klaar (${(ms / 1000).toFixed(1)} s${out.notes.length ? `, ${out.notes.length} opmerkingen` : ""})`);
       } catch (e) {
         const ms = performance.now() - t0;
-        const error = e instanceof Error ? e.message.slice(0, 300) : String(e);
-        results.push({ caseIndex, letter, run, ms, accepted: 0, skipped: 0, error, markdown: `# ${c.title}: uitkomst ${letter}\n\nGeen uitkomst: fout bij de aanbieder.\n` });
+        const { error, inputTokens, outputTokens } = describeError(e);
+        results.push({ caseIndex, letter, run, ms, inputTokens, outputTokens, accepted: 0, skipped: 0, error, markdown: `# ${c.title}: uitkomst ${letter}\n\nGeen uitkomst: fout bij de aanbieder.\n` });
         console.log("fout (zie metingen.csv)");
       }
     }

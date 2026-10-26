@@ -7,7 +7,7 @@
 
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { generateText, Output } from "ai";
-import { DraftResponseSchema, type AiProvider } from "../types";
+import { DraftResponseSchema, maxOutputTokens, type AiProvider } from "../types";
 import { LessonPackageSchema } from "../lesson";
 
 const DEFAULT_MODEL = "claude-sonnet-5-5";
@@ -26,7 +26,7 @@ export const anthropicProvider: AiProvider = {
       system: prompt.system,
       prompt: prompt.user,
       output: Output.object({ schema: DraftResponseSchema }),
-      maxOutputTokens: 8000,
+      maxOutputTokens: maxOutputTokens(),
     });
     return { lessons: output.lessons, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
   },
@@ -37,7 +37,7 @@ export const anthropicProvider: AiProvider = {
       system: prompt.system,
       prompt: prompt.user,
       output: Output.object({ schema: LessonPackageSchema }),
-      maxOutputTokens: 8000,
+      maxOutputTokens: maxOutputTokens(),
     });
     return { pkg: output, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
   },

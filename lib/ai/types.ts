@@ -53,3 +53,12 @@ export type AiProvider = {
   /** Lespakket (groep + vak + leerdoel). Zie lib/ai/lesson.ts. */
   lessonPackage(prompt: { system: string; user: string }): Promise<{ pkg: LessonPackage; usage?: TokenUsage }>;
 };
+
+/**
+ * Plafond voor de lengte van een AI-antwoord, voor ELKE aanbieder gelijk (eerlijke
+ * vergelijking, kosten begrensd). Aan te passen met AI_MAX_OUTPUT_TOKENS in .env.
+ */
+export function maxOutputTokens(): number {
+  const v = Number(process.env.AI_MAX_OUTPUT_TOKENS);
+  return Number.isFinite(v) && v > 0 ? v : 16000;
+}

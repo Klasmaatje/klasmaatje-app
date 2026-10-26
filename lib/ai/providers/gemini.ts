@@ -6,7 +6,7 @@
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText, Output } from "ai";
-import { DraftResponseSchema, type AiProvider } from "../types";
+import { DraftResponseSchema, maxOutputTokens, type AiProvider } from "../types";
 import { LessonPackageSchema } from "../lesson";
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
@@ -25,6 +25,7 @@ export const geminiProvider: AiProvider = {
       system: prompt.system,
       prompt: prompt.user,
       output: Output.object({ schema: DraftResponseSchema }),
+      maxOutputTokens: maxOutputTokens(),
       temperature: 0.4,
     });
     return { lessons: output.lessons, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
@@ -36,6 +37,7 @@ export const geminiProvider: AiProvider = {
       system: prompt.system,
       prompt: prompt.user,
       output: Output.object({ schema: LessonPackageSchema }),
+      maxOutputTokens: maxOutputTokens(),
       temperature: 0.4,
     });
     return { pkg: output, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };

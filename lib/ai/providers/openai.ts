@@ -6,7 +6,7 @@
 
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, Output } from "ai";
-import { DraftResponseSchema, type AiProvider } from "../types";
+import { DraftResponseSchema, maxOutputTokens, type AiProvider } from "../types";
 import { LessonPackageSchema } from "../lesson";
 
 const DEFAULT_MODEL = "gpt-6.1-sol";
@@ -25,6 +25,7 @@ export const openaiProvider: AiProvider = {
       system: prompt.system,
       prompt: prompt.user,
       output: Output.object({ schema: DraftResponseSchema }),
+      maxOutputTokens: maxOutputTokens(),
     });
     return { lessons: output.lessons, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
   },
@@ -35,6 +36,7 @@ export const openaiProvider: AiProvider = {
       system: prompt.system,
       prompt: prompt.user,
       output: Output.object({ schema: LessonPackageSchema }),
+      maxOutputTokens: maxOutputTokens(),
     });
     return { pkg: output, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
   },
