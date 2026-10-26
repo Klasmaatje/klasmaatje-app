@@ -267,6 +267,112 @@ export async function assertCanManageScheduleItem(
   return item;
 }
 
+// ---------- Kwaliteitslaag: groepsreflectie en clusterplannen ----------
+// Groepsniveau, geen leerlingdata. Zien: zelfde scope als weekplannen.
+// Groepsreflectie schrijven: alleen groepsleden (het is de reflectie van de leerkracht).
+// Clusterplan schrijven: groepsleden EN IB/directie van de school (samen opstellen).
+// Clusterplan vaststellen: IB/directie van de school, niet als groepslid.
+
+/** Welke groepsreflecties deze gebruiker mag ZIEN. */
+export function groupReflectionScope(actor: Actor): Prisma.GroupReflectionWhereInput {
+  if (actor.role === "PLATFORM_ADMIN") return {};
+  if (actor.role === "BOARD" || !actor.organizationId) return NOTHING;
+  return { organizationId: actor.organizationId, classGroup: classGroupScope(actor) };
+}
+
+/** Welke clusterplannen deze gebruiker mag ZIEN. */
+export function clusterPlanScope(actor: Actor): Prisma.ClusterPlanWhereInput {
+  if (actor.role === "PLATFORM_ADMIN") return {};
+  if (actor.role === "BOARD" || !actor.organizationId) return NOTHING;
+  return { organizationId: actor.organizationId, classGroup: classGroupScope(actor) };
+}
+
+/** Mag deze gebruiker deze groepsreflectie zien? */
+export async function assertCanViewGroupReflection(db: Db, actor: Actor, reflectionId: string) {
+  const reflection = await db.groupReflection.findFirst({
+    where: { AND: [{ id: reflectionId }, groupReflectionScope(actor)] },
+    select: { id: true, weekPlanId: true, classGroupId: true, schoolId: true, organizationId: true },
+  });
+  if (!reflection) throw new AccessError(404, "Reflectie niet gevonden.");
+  return reflection;
+}
+
+/** Mag deze gebruiker deze groepsreflectie wijzigen of verwijderen? Alleen groepsleden. */
+export async function assertCanEditGroupReflection(db: Db, actor: Actor, reflectionId: string) {
+  const reflection = await assertCanViewGroupReflection(db, actor, reflectionId);
+  await assertCanEditClassGroupContent(db, actor, reflection.classGroupId);
+  return reflection;
+}
+
+/** IB of directie van de school van deze groep (of PLATFORM_ADMIN). */
+function isSchoolSupport(actor: Actor, group: { schoolId: string; organizationId: string }) {
+  return (
+    actor.role === "PLATFORM_ADMIN" ||
+    ((actor.role === "IB" || actor.role === "SCHOOL_ADMIN") &&
+      actor.schoolId === group.schoolId &&
+      actor.organizationId === group.organizationId)
+  );
+}
+
+/**
+ * Mag deze gebruiker een clusterplan voor deze groep maken of wijzigen?
+ * Groepsleden en IB/directie van de school. Kwaliteit en bestuur lezen alleen.
+ */
+export async function assertCanWriteClusterPlanForGroup(
+  db: Db,
+  actor: Actor,
+  classGroupId: string
+): Promise<GroupRef> {
+  const group = await assertCanViewClassGroup(db, actor, classGroupId);
+  if (isSchoolSupport(actor, group)) return group;
+
+  const membership = await db.classGroupMembership.findUnique({
+    where: { userId_classGroupId: { userId: actor.userId, classGroupId } },
+    select: { id: true },
+  });
+  if (!membership || group.organizationId !== actor.organizationId) {
+    throw new AccessError(403, "Alleen de leerkrachten van deze groep en IB of directie kunnen dit clusterplan bewerken.");
+  }
+  return group;
+}
+
+/** Mag deze gebruiker dit clusterplan zien? */
+export async function assertCanViewClusterPlan(db: Db, actor: Actor, clusterPlanId: string) {
+  const plan = await db.clusterPlan.findFirst({
+    where: { AND: [{ id: clusterPlanId }, clusterPlanScope(actor)] },
+    select: { id: true, classGroupId: true, schoolId: true, organizationId: true },
+  });
+  if (!plan) throw new AccessError(404, "Clusterplan niet gevonden.");
+  return plan;
+}
+
+/** Mag deze gebruiker dit clusterplan wijzigen of evalueren? */
+export async function assertCanEditClusterPlan(db: Db, actor: Actor, clusterPlanId: string) {
+  const plan = await assertCanViewClusterPlan(db, actor, clusterPlanId);
+  await assertCanWriteClusterPlanForGroup(db, actor, plan.classGroupId);
+  return plan;
+}
+
+/**
+ * Mag deze gebruiker dit clusterplan vaststellen?
+ * IB of directie van de school (of PLATFORM_ADMIN), en niet als lid van de groep.
+ * Of de STATUS vaststellen toelaat, controleert de actie (lib/quality.ts).
+ */
+export async function assertCanFixClusterPlan(db: Db, actor: Actor, clusterPlanId: string) {
+  const plan = await assertCanViewClusterPlan(db, actor, clusterPlanId);
+  if (!isSchoolSupport(actor, plan)) {
+    throw new AccessError(403, "Alleen IB of directie van deze school kan een clusterplan vaststellen.");
+  }
+  const membership = await db.classGroupMembership.findUnique({
+    where: { userId_classGroupId: { userId: actor.userId, classGroupId: plan.classGroupId } },
+    select: { id: true },
+  });
+  if (membership) {
+    throw new AccessError(403, "Je kunt een clusterplan van je eigen groep niet zelf vaststellen.");
+  }
+  return plan;
+}
+
 // ---------- Rolregels voor menu's en pagina's ----------
 // Alleen voor wat zichtbaar is; de echte check zit in de scopes en asserts.
 
@@ -278,6 +384,16 @@ export function canManageSchool(role: Role): boolean {
 /** Meekijken met alle weekplannen van de school (of het bestuur). */
 export function canViewWeekPlanOverview(role: Role): boolean {
   return role === "IB" || role === "SCHOOL_ADMIN" || role === "QUALITY_STAFF" || role === "PLATFORM_ADMIN";
+}
+
+/** IB-overzicht (kwaliteitslaag): zelfde groep als meekijken met weekplannen. */
+export function canViewQualityOverview(role: Role): boolean {
+  return canViewWeekPlanOverview(role);
+}
+
+/** Kwaliteitslaag in het menu (reflectie, clusterplannen): iedereen behalve bestuur. */
+export function canUseQualityLayer(role: Role): boolean {
+  return role !== "BOARD";
 }
 
 /** Weekplannen goedkeuren (eigen school). Kwaliteit en bestuur alleen lezen. */

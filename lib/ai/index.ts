@@ -8,16 +8,37 @@
 import { buildPrompt } from "./prompt";
 import { fitsInBlocks, overlaps } from "./free-blocks";
 import { geminiConfigured, geminiProvider } from "./providers/gemini";
+import { openaiConfigured, openaiProvider } from "./providers/openai";
+import { anthropicConfigured, anthropicProvider } from "./providers/anthropic";
 import { mockProvider } from "./providers/mock";
-import type { AiProvider, DraftRequest, LessonDraft } from "./types";
+import type { AiProvider, DraftRequest, LessonDraft, TokenUsage } from "./types";
+import { buildLessonPrompt, checkLessonPackage, type LessonPackage, type LessonRequest } from "./lesson";
 
 export class AiNotConfiguredError extends Error {}
 
-/** Welke aanbieder voor dit bestuur? Zonder sleutel: oefenmodus (alleen buiten productie). */
+/** Aanbieders die met een sleutel in de omgeving beschikbaar zijn. */
+export const PROVIDERS: Record<string, { provider: AiProvider; configured: () => boolean }> = {
+  openai: { provider: openaiProvider, configured: openaiConfigured },
+  anthropic: { provider: anthropicProvider, configured: anthropicConfigured },
+  gemini: { provider: geminiProvider, configured: geminiConfigured },
+};
+
+/**
+ * Welke aanbieder voor dit bestuur (SchoolConfig.aiProvider: "openai" | "anthropic" | "gemini")?
+ * Zonder sleutel voor die aanbieder: oefenmodus (alleen buiten productie of met AI_MOCK=1).
+ */
 export function pickProvider(configured: string | null | undefined): AiProvider {
-  if ((configured ?? "gemini") === "gemini" && geminiConfigured()) return geminiProvider;
+  const entry = PROVIDERS[configured ?? "gemini"];
+  if (entry && entry.configured()) return entry.provider;
   if (process.env.NODE_ENV !== "production" || process.env.AI_MOCK === "1") return mockProvider;
   throw new AiNotConfiguredError("De AI-koppeling is nog niet ingesteld.");
+}
+
+/** Korte uitleg voor de leerkracht welke AI het voorstel maakt. */
+export function providerLabel(configured: string | null | undefined): string {
+  const entry = PROVIDERS[configured ?? "gemini"];
+  if (entry && entry.configured()) return entry.provider.name;
+  return "oefenmodus (nog geen AI-sleutel, voorbeeldlessen)";
 }
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -30,8 +51,8 @@ const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 export async function generateWeekPlanDraft(
   request: DraftRequest,
   provider: AiProvider
-): Promise<{ lessons: LessonDraft[]; skipped: number; provider: string }> {
-  const raw = await provider.generate(request, buildPrompt(request));
+): Promise<{ lessons: LessonDraft[]; skipped: number; provider: string; usage?: TokenUsage }> {
+  const { lessons: raw, usage } = await provider.generate(request, buildPrompt(request));
 
   const accepted: LessonDraft[] = [];
   let skipped = 0;
@@ -59,5 +80,14 @@ export async function generateWeekPlanDraft(
       goalVerrijking: l.goalVerrijking.trim().slice(0, 500),
     });
   }
-  return { lessons: accepted, skipped, provider: provider.name };
+  return { lessons: accepted, skipped, provider: provider.name, usage };
+}
+
+/** Lespakket laten maken en controleren. De uitkomst is altijd een concept. */
+export async function generateLessonPackage(
+  request: LessonRequest,
+  provider: AiProvider
+): Promise<{ pkg: LessonPackage; notes: string[]; provider: string; usage?: TokenUsage }> {
+  const { pkg, usage } = await provider.lessonPackage(buildLessonPrompt(request));
+  return { pkg, notes: checkLessonPackage(pkg), provider: provider.name, usage };
 }

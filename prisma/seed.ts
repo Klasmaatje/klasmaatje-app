@@ -292,12 +292,52 @@ async function main() {
     });
   }
 
+  // Kwaliteitsdoelen SHON, normen letterlijk uit het SBP 2025-2029 (gecontroleerd 26 okt 2026). Alleen aanmaken
+  // als ze nog niet bestaan: het bestuur kan ze daarna zelf bijwerken.
+  const qualityGoals = [
+    {
+      code: "REK-1F",
+      title: "Rekenen: 1F eind groep 6, 75% 1S bij uitstroom",
+      source: "Strategisch Beleidsplan SHON 2025-2029, Ambitie Rekenen (p. 17)",
+      norm: "Wij vinden dat elke leerling eind groep 6 het niveau van 1F behaald moet hebben (uitzonderingen van zorgleerlingen daargelaten). Eind groep 8, is het onze ambitie, dat 75% van onze leerlingen uitstromen op 1S niveau.",
+      subject: "Rekenen",
+      validFromYear: 2025,
+      validToYear: 2029,
+    },
+    {
+      code: "TAAL-2F",
+      title: "Taal en begrijpend lezen: 1F eind groep 6, 85% 2F bij uitstroom",
+      source: "Strategisch Beleidsplan SHON 2025-2029, Ambitie Taal (p. 19)",
+      norm: "Wij vinden dat elke leerling eind groep 6 het niveau van 1F behaald moet hebben (uitzonderingen van zorgleerlingen daargelaten). Eind groep 8, is het onze ambitie, dat 85% van onze leerlingen uitstromen op 2F niveau.",
+      subject: "Begrijpend lezen",
+      validFromYear: 2025,
+      validToYear: 2029,
+    },
+    {
+      code: "EDI-CVB",
+      title: "EDI: controle van begrip, verlengde en verdiepende instructie",
+      source: "Strategisch Beleidsplan SHON 2025-2029, Ambitie EDI (p. 21)",
+      norm: "Leraren controleren begrip: wisbordjes, willekeurige beurten. Er wordt een verdiepende en verlengde instructie gerealiseerd om tegemoet te komen aan sterke en zwakke leerlingen.",
+      subject: null,
+      validFromYear: 2025,
+      validToYear: 2029,
+    },
+  ];
+  for (const goal of qualityGoals) {
+    await prisma.qualityGoal.upsert({
+      where: { organizationId_code: { organizationId: shon.id, code: goal.code } },
+      update: {},
+      create: { organizationId: shon.id, ...goal },
+    });
+  }
+
   const dayCount = await prisma.schoolDaySchedule.count();
   console.log("Seed klaar:");
   console.log("  Organisatie:", shon.name);
   console.log("  Scholen:", schools.map((s) => s.code).join(", "));
   console.log("  Dagroosters:", dayCount);
   console.log("  Methode-catalogus:", methods.length);
+  console.log("  Kwaliteitsdoelen:", await prisma.qualityGoal.count({ where: { organizationId: shon.id } }));
   console.log("  SHON-standaardmethodes per school:", shonDefaults.length);
   for (const school of schools) {
     const count = await prisma.classGroup.count({

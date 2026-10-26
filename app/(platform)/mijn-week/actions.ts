@@ -242,6 +242,10 @@ export async function deleteWeekPlan(formData: FormData): Promise<void> {
   if (!canDelete(current.status)) {
     throw new AccessError(403, "Alleen een concept-weekplan kan worden verwijderd.");
   }
+  // Een plan met groepsreflectie blijft bewaard (de reflectie verwijst ernaar).
+  if ((await prisma.groupReflection.count({ where: { weekPlanId: plan.id } })) > 0) {
+    throw new AccessError(403, "Dit weekplan heeft een groepsreflectie en kan daarom niet worden verwijderd.");
+  }
   await prisma.weekPlan.delete({ where: { id: plan.id } }); // lessen gaan mee (cascade)
   revalidatePath("/mijn-week");
   redirect("/mijn-week");

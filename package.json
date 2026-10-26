@@ -9,13 +9,15 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.72",
     "@ai-sdk/google": "^4.0.88",
+    "@ai-sdk/openai": "4.0.84",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "ai": "^7.0.128",
     "better-auth": "^1.6.23",
     "lucide-react": "^1.23.0",
-    "next": "^16.3.8",
+    "next": "16.4.2",
     "pg": "^8.22.0",
     "prisma": "^7.8.0",
     "react": "19.2.3",
@@ -30,7 +32,7 @@
     "@types/react-dom": "^19",
     "dotenv": "^17.4.2",
     "eslint": "^9",
-    "eslint-config-next": "^16.3.8",
+    "eslint-config-next": "16.4.2",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
     "typescript": "^5"

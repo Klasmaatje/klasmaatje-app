@@ -28,8 +28,27 @@ import {
   canViewWeekPlanOverview,
   assertCanApproveWeekPlan,
   canApproveWeekPlans,
+  groupReflectionScope,
+  clusterPlanScope,
+  assertCanViewGroupReflection,
+  assertCanEditGroupReflection,
+  assertCanWriteClusterPlanForGroup,
+  assertCanEditClusterPlan,
+  assertCanFixClusterPlan,
+  canViewQualityOverview,
+  canUseQualityLayer,
 } from "../../lib/access";
 import { canApprove, canDelete, canSubmit, statusAfterEdit } from "../../lib/weekplan-status";
+import {
+  canEditClusterContent,
+  canEvaluateClusterPlan,
+  canFixClusterPlan,
+  clusterStatusAfterEdit,
+  parseEffect,
+  parseLevel,
+  subjectsFromLessons,
+} from "../../lib/quality";
+import { draftClusterPlan } from "../../lib/cluster-draft";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -263,6 +282,112 @@ async function run(db: Db) {
   check("alleen concept verwijderen", canDelete("DRAFT") && !canDelete("SUBMITTED") && !canDelete("APPROVED"));
   check("wijziging zet plan terug op concept", statusAfterEdit() === "DRAFT");
 
+  // --- 9. Kwaliteitslaag: groepsreflectie ---
+  // Let op: sinds blok 7 is IB lid van groep gA1b (en dus niet van gA1a).
+  console.log("\n9. Groepsreflectie");
+  const reflection = (weekPlanId: string, classGroupId: string, schoolId: string, organizationId: string, userId: string) =>
+    db.groupReflection.create({ data: { weekPlanId, classGroupId, schoolId, organizationId, userId, subject: "Rekenen" } });
+  const grA1a = await reflection(wpA1a.id, gA1a.id, schoolA1.id, orgA.id, teacher.userId);
+  const grA2 = await reflection(wpA2.id, gA2.id, schoolA2.id, orgA.id, teacherA2.userId);
+  const grB1 = await reflection(wpB1.id, gB1.id, schoolB1.id, orgB.id, teacherOrgB.userId);
+  const testReflectionIds = [grA1a.id, grA2.id, grB1.id];
+  const expectReflections: [string, Actor, string[]][] = [
+    ["leerkracht ziet reflectie eigen groep", teacher, [grA1a.id]],
+    ["duo-partner ziet reflectie van de groep", duo, [grA1a.id]],
+    ["leerkracht zonder groep ziet geen reflecties", teacherNoGroup, []],
+    ["IB ziet reflecties eigen school", ib, [grA1a.id]],
+    ["kwaliteitsmedewerker ziet reflecties hele bestuur", quality, [grA1a.id, grA2.id]],
+    ["bestuur ziet geen reflecties", board, []],
+    ["ander bestuur ziet niets van bestuur A", ibOrgB, [grB1.id]],
+    ["platformbeheer ziet alle reflecties", platform, testReflectionIds],
+  ];
+  for (const [label, actor, expected] of expectReflections) {
+    const rows = await db.groupReflection.findMany({
+      where: { AND: [groupReflectionScope(actor), { id: { in: testReflectionIds } }] },
+      select: { id: true },
+    });
+    check(label, sameSet(rows.map((r) => r.id), expected));
+  }
+  await expectStatus("leerkracht mag reflectie eigen groep wijzigen", () => assertCanEditGroupReflection(db, teacher, grA1a.id), "ok");
+  await expectStatus("duo-partner mag reflectie van de groep wijzigen", () => assertCanEditGroupReflection(db, duo, grA1a.id), "ok");
+  await expectStatus("IB leest mee maar wijzigt reflectie niet (403)", () => assertCanEditGroupReflection(db, ib, grA1a.id), 403);
+  await expectStatus("kwaliteitsmedewerker wijzigt reflectie niet (403)", () => assertCanEditGroupReflection(db, quality, grA1a.id), 403);
+  await expectStatus("IB: reflectie andere school bestaat niet (404)", () => assertCanViewGroupReflection(db, ib, grA2.id), 404);
+  await expectStatus("ander bestuur: reflectie bestaat niet (404)", () => assertCanViewGroupReflection(db, ibOrgB, grA1a.id), 404);
+  await expectStatus("bestuur: reflectie bestaat niet (404)", () => assertCanViewGroupReflection(db, board, grA1a.id), 404);
+
+  // --- 10. Kwaliteitslaag: clusterplannen ---
+  console.log("\n10. Clusterplannen");
+  const cluster = (classGroupId: string, schoolId: string, organizationId: string, createdById: string) =>
+    db.clusterPlan.create({
+      data: { classGroupId, schoolId, organizationId, createdById, subject: "Rekenen", startPeriode: "2026-W45", evaluatiePeriode: "2026-W51" },
+    });
+  const cpA1a = await cluster(gA1a.id, schoolA1.id, orgA.id, teacher.userId);
+  const cpA1b = await cluster(gA1b.id, schoolA1.id, orgA.id, ib.userId);
+  const cpA2 = await cluster(gA2.id, schoolA2.id, orgA.id, teacherA2.userId);
+  const cpB1 = await cluster(gB1.id, schoolB1.id, orgB.id, teacherOrgB.userId);
+  const testClusterIds = [cpA1a.id, cpA1b.id, cpA2.id, cpB1.id];
+  const expectClusters: [string, Actor, string[]][] = [
+    ["leerkracht ziet clusterplan eigen groep", teacher, [cpA1a.id]],
+    ["IB ziet clusterplannen eigen school", ib, [cpA1a.id, cpA1b.id]],
+    ["kwaliteitsmedewerker ziet clusterplannen hele bestuur", quality, [cpA1a.id, cpA1b.id, cpA2.id]],
+    ["bestuur ziet geen clusterplannen", board, []],
+    ["ander bestuur ziet niets van bestuur A", ibOrgB, [cpB1.id]],
+  ];
+  for (const [label, actor, expected] of expectClusters) {
+    const rows = await db.clusterPlan.findMany({
+      where: { AND: [clusterPlanScope(actor), { id: { in: testClusterIds } }] },
+      select: { id: true },
+    });
+    check(label, sameSet(rows.map((r) => r.id), expected));
+  }
+  await expectStatus("leerkracht mag clusterplan voor eigen groep maken", () => assertCanWriteClusterPlanForGroup(db, teacher, gA1a.id), "ok");
+  await expectStatus("IB mag clusterplan voor groep eigen school maken", () => assertCanWriteClusterPlanForGroup(db, ib, gA1a.id), "ok");
+  await expectStatus("directeur mag clusterplan eigen school maken", () => assertCanWriteClusterPlanForGroup(db, director, gA1a.id), "ok");
+  await expectStatus("kwaliteitsmedewerker leest alleen (403)", () => assertCanWriteClusterPlanForGroup(db, quality, gA1a.id), 403);
+  await expectStatus("leerkracht zonder groep: groep bestaat niet (404)", () => assertCanWriteClusterPlanForGroup(db, teacherNoGroup, gA1a.id), 404);
+  await expectStatus("IB: groep andere school bestaat niet (404)", () => assertCanWriteClusterPlanForGroup(db, ib, gA2.id), 404);
+  await expectStatus("leerkracht mag clusterplan eigen groep wijzigen", () => assertCanEditClusterPlan(db, teacher, cpA1a.id), "ok");
+  await expectStatus("IB mag clusterplan eigen school wijzigen", () => assertCanEditClusterPlan(db, ib, cpA1a.id), "ok");
+  await expectStatus("kwaliteitsmedewerker wijzigt clusterplan niet (403)", () => assertCanEditClusterPlan(db, quality, cpA1a.id), 403);
+  await expectStatus("ander bestuur: clusterplan bestaat niet (404)", () => assertCanEditClusterPlan(db, ibOrgB, cpA1a.id), 404);
+  await expectStatus("IB mag clusterplan eigen school vaststellen", () => assertCanFixClusterPlan(db, ib, cpA1a.id), "ok");
+  await expectStatus("directeur mag clusterplan vaststellen", () => assertCanFixClusterPlan(db, director, cpA1a.id), "ok");
+  await expectStatus("leerkracht stelt eigen clusterplan niet vast (403)", () => assertCanFixClusterPlan(db, teacher, cpA1a.id), 403);
+  await expectStatus("kwaliteitsmedewerker stelt niet vast (403)", () => assertCanFixClusterPlan(db, quality, cpA1a.id), 403);
+  await expectStatus("IB stelt plan van eigen groep niet zelf vast (403)", () => assertCanFixClusterPlan(db, ib, cpA1b.id), 403);
+  await expectStatus("directeur mag dat plan wel vaststellen", () => assertCanFixClusterPlan(db, director, cpA1b.id), "ok");
+  await expectStatus("IB: clusterplan andere school bestaat niet (404)", () => assertCanFixClusterPlan(db, ib, cpA2.id), 404);
+
+  console.log("\n11. Regels kwaliteitslaag");
+  check("IB-overzicht voor IB, directie, kwaliteit en platformbeheer",
+    (["TEACHER", "IB", "SCHOOL_ADMIN", "QUALITY_STAFF", "BOARD", "PLATFORM_ADMIN"] as const)
+      .filter(canViewQualityOverview).join() === "IB,SCHOOL_ADMIN,QUALITY_STAFF,PLATFORM_ADMIN");
+  check("kwaliteitslaag in menu voor iedereen behalve bestuur",
+    (["TEACHER", "IB", "SCHOOL_ADMIN", "QUALITY_STAFF", "BOARD", "PLATFORM_ADMIN"] as const)
+      .filter(canUseQualityLayer).join() === "TEACHER,IB,SCHOOL_ADMIN,QUALITY_STAFF,PLATFORM_ADMIN");
+  check("inschatting: alleen bekende waarden", parseLevel("DEELS") === "DEELS" && parseLevel("ROOD") === null && parseLevel("") === null);
+  check("effect: alleen bekende waarden", parseEffect("JA") === "JA" && parseEffect("groen") === null);
+  check("vakken uit lessen: zonder routines, uniek, gesorteerd",
+    subjectsFromLessons([
+      { type: "les", subject: "Taal" }, { type: "routine", subject: "Kring" },
+      { type: "toets", subject: "Rekenen" }, { type: "les", subject: "Rekenen" },
+    ]).join() === "Rekenen,Taal");
+  check("clusterplan: alleen concept vaststellen", canFixClusterPlan("DRAFT") && !canFixClusterPlan("VASTGESTELD") && !canFixClusterPlan("GEEVALUEERD"));
+  check("clusterplan: alleen vastgesteld evalueren", canEvaluateClusterPlan("VASTGESTELD") && !canEvaluateClusterPlan("DRAFT"));
+  check("clusterplan: na evaluatie geen inhoud meer wijzigen", canEditClusterContent("DRAFT") && canEditClusterContent("VASTGESTELD") && !canEditClusterContent("GEEVALUEERD"));
+  check("clusterplan: wijziging zet terug op concept", clusterStatusAfterEdit() === "DRAFT");
+
+  console.log("\n12. Conceptvoorstel clusterplan (herleidbaar)");
+  const draft = draftClusterPlan("Rekenen", [
+    { periode: "2026-W44", basis: "GEHAALD", verlengd: "DEELS", verrijking: "GEHAALD", aandacht: "Gelijknamig maken.", vervolg: "Herhaling op maandag." },
+    { periode: "2026-W43", basis: "DEELS", verlengd: "NOG_NIET", verrijking: null, aandacht: "Gelijknamig maken.", vervolg: null },
+  ], "Rekenen: 1F eind groep 6");
+  check("concept: aandachtspunt uit reflectie komt terug (een keer)", draft.intensiefDoel.split("Gelijknamig maken.").length === 2);
+  check("concept: herleidbaar naar weken", draft.intensiefDoel.includes("in 2 van de 2 reflecties (week 44, week 43)"));
+  check("concept: meegenomen vervolg in aanpak", draft.intensiefAanpak.includes("Herhaling op maandag."));
+  check("concept: kwaliteitsdoel genoemd", draft.basisDoel.includes("Rekenen: 1F eind groep 6"));
+  check("concept zonder reflecties: geen verzonnen tellingen", !draftClusterPlan("Taal", []).basisDoel.includes("reflecties"));
 }
 
 async function main() {

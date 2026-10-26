@@ -4,13 +4,15 @@
 
 import { fromMinutes, toMinutes } from "../../schedule-items";
 import type { AiProvider, DraftRequest, LessonDraft } from "../types";
+import type { LessonPackage } from "../lesson";
 
 const KLEUTER = ["Leerkring taal", "Spelen en werken", "Leerkring rekenen", "Spel en beweging"];
 const MIDDEN = ["Rekenen", "Taal", "Spelling", "Begrijpend lezen", "Wereldoriëntatie", "Engels", "Expressie"];
 
 export const mockProvider: AiProvider = {
   name: "Oefenmodus",
-  async generate(req: DraftRequest): Promise<LessonDraft[]> {
+  model: "geen (voorbeeldlessen)",
+  async generate(req: DraftRequest): Promise<{ lessons: LessonDraft[] }> {
     const subjects = req.grades.some((g) => g <= 2) ? KLEUTER : MIDDEN;
     const lessons: LessonDraft[] = [];
     let i = 0;
@@ -35,6 +37,33 @@ export const mockProvider: AiProvider = {
         }
       }
     }
-    return lessons;
+    return { lessons };
+  },
+  async lessonPackage(): Promise<{ pkg: LessonPackage }> {
+    const n = (niveau: "intensief" | "basis" | "verrijking") => [
+      { niveau, opdracht: `Voorbeeldopdracht 1 (${niveau})`, antwoord: "voorbeeld" },
+      { niveau, opdracht: `Voorbeeldopdracht 2 (${niveau})`, antwoord: "voorbeeld" },
+    ];
+    return {
+      pkg: {
+        titel: "Voorbeeldles (oefenmodus)",
+        lesdoel: "Ik kan het lesdoel toepassen. (voorbeeld)",
+        succescriteria: ["Het is gelukt als ik de opdracht zelfstandig kan maken. (voorbeeld)"],
+        voorkennis: "Korte herhaling van de vorige les. (voorbeeld)",
+        instructie: [
+          { fase: "Ik doe het voor", uitleg: "Voorbeeld." },
+          { fase: "We doen het samen", uitleg: "Voorbeeld." },
+          { fase: "Jij doet het zelf", uitleg: "Voorbeeld." },
+        ],
+        controleVanBegrip: [1, 2, 3].map((i) => ({ vraag: `Vraag ${i} (voorbeeld)`, verwachtAntwoord: "voorbeeld" })),
+        intensief: { aanpak: "Instructietafel. (voorbeeld)", opdracht: "Begeleide inoefening. (voorbeeld)" },
+        basis: { aanpak: "Zelfstandig verwerken. (voorbeeld)", opdracht: "Basisopdracht. (voorbeeld)" },
+        verrijking: { aanpak: "Verkorte instructie. (voorbeeld)", opdracht: "Verdiepende opdracht. (voorbeeld)" },
+        werkblad: [...n("intensief"), ...n("basis"), ...n("verrijking")],
+        visueelMateriaal: ["Een eenvoudig schema bij het lesdoel. (voorbeeld)"],
+        afsluiting: "Terugkijken op het lesdoel. (voorbeeld)",
+        materialen: ["wisbordjes"],
+      },
+    };
   },
 };

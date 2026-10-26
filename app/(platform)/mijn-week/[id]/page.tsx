@@ -14,7 +14,9 @@ import DetailsForm from "./details-form";
 import AddLessonForm from "./add-lesson-form";
 import DeletePlanButton from "./delete-plan-button";
 import DraftButton from "./draft-button";
-import { geminiConfigured } from "@/lib/ai/providers/gemini";
+import { providerLabel } from "@/lib/ai";
+import { subjectsFromLessons } from "@/lib/quality";
+import ReflectionSection from "../../micro-analyse/reflection-section";
 
 type Entry = {
   id: string;
@@ -50,6 +52,11 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
           goalBasis: true, goalVerlengd: true, goalVerrijking: true,
         },
       },
+      reflections: {
+        orderBy: { subject: "asc" },
+        include: { user: { select: { name: true } }, _count: { select: { usedInClusterPlans: true } } },
+      },
+      organization: { select: { config: { select: { microAnalyseLabel: true, aiProvider: true } } } },
       school: {
         select: {
           name: true,
@@ -171,7 +178,7 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
         <div className="rounded-xl p-5 mb-4" style={{ background: "#FFF9EC", border: "1px solid #F3DFB2" }}>
           <DraftButton
             weekPlanId={plan.id}
-            providerLabel={geminiConfigured() ? "Gemini" : "oefenmodus (nog geen AI-sleutel, voorbeeldlessen)"}
+            providerLabel={providerLabel(plan.organization.config?.aiProvider)}
           />
         </div>
       )}
@@ -261,7 +268,15 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
           : "Dit plan toont de vaste momenten uit het actuele dagrooster van de school."}
       </p>
 
-      {canEdit && canDelete(plan.status) && (
+      <ReflectionSection
+        weekPlanId={plan.id}
+        label={plan.organization.config?.microAnalyseLabel ?? "Micro-analyse"}
+        reflections={plan.reflections}
+        subjects={subjectsFromLessons(plan.lessons)}
+        canEdit={canEdit}
+      />
+
+      {canEdit && canDelete(plan.status) && plan.reflections.length === 0 && (
         <div className="mt-8 pt-4" style={{ borderTop: "1px solid #E8DFF5" }}>
           <DeletePlanButton weekPlanId={plan.id} />
         </div>

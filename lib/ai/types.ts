@@ -1,9 +1,10 @@
 // Gedeelde types voor de AI-laag. De "universele motor" (prompt, EDI, drie
 // niveaus, privacy, controle van de uitkomst) staat los van de aanbieder;
-// een aanbieder (Gemini, later Azure OpenAI, Mistral, ...) zet alleen een
+// een aanbieder (OpenAI, Anthropic/Claude, Gemini, oefenmodus) zet alleen een
 // verzoek om in lessen.
 
 import { z } from "zod";
+import type { LessonPackage } from "./lesson";
 
 export type TimeBlock = { start: string; end: string };
 
@@ -40,7 +41,15 @@ export const DraftResponseSchema = z.object({ lessons: z.array(LessonDraftSchema
 
 export type LessonDraft = z.infer<typeof LessonDraftSchema>;
 
+export type TokenUsage = { inputTokens?: number; outputTokens?: number };
+
 export type AiProvider = {
-  name: string; // voor de leerkracht: "Gemini" of "Oefenmodus"
-  generate(request: DraftRequest, prompt: { system: string; user: string }): Promise<LessonDraft[]>;
+  name: string; // voor de leerkracht: "OpenAI", "Claude", "Gemini" of "Oefenmodus"
+  model: string; // modelnaam, voor de vergelijking en het logboek
+  generate(
+    request: DraftRequest,
+    prompt: { system: string; user: string }
+  ): Promise<{ lessons: LessonDraft[]; usage?: TokenUsage }>;
+  /** Lespakket (groep + vak + leerdoel). Zie lib/ai/lesson.ts. */
+  lessonPackage(prompt: { system: string; user: string }): Promise<{ pkg: LessonPackage; usage?: TokenUsage }>;
 };

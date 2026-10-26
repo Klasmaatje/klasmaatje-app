@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/prisma";
 import { getActor } from "../../lib/current-actor";
-import { canManageSchool, canViewWeekPlanOverview } from "../../lib/access";
+import { canManageSchool, canUseQualityLayer, canViewQualityOverview, canViewWeekPlanOverview } from "../../lib/access";
 import Sidebar from "../components/Sidebar";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -36,6 +36,8 @@ export default async function PlatformLayout({ children }: { children: React.Rea
   const actor = await getActor();
   const canManageGroups = actor ? canManageSchool(actor.role) : false;
   const canViewOverview = actor ? canViewWeekPlanOverview(actor.role) : false;
+  const canUseQuality = actor ? canUseQualityLayer(actor.role) : false;
+  const canSeeQualityOverview = actor ? canViewQualityOverview(actor.role) : false;
   const roleLabel = actor ? ROLE_LABEL[actor.role] : undefined;
 
   return (
@@ -49,8 +51,10 @@ export default async function PlatformLayout({ children }: { children: React.Rea
         microAnalyseLabel={microAnalyseLabel}
         canManageGroups={canManageGroups}
         canViewOverview={canViewOverview}
+        canUseQuality={canUseQuality}
+        canViewQualityOverview={canSeeQualityOverview}
       />
       <main className="flex-1 p-8">{children}</main>
     </div>
   );
-}
+}

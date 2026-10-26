@@ -24,12 +24,15 @@ model Organization {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  config        SchoolConfig?
-  schools       School[]
-  users         User[]
-  classGroups   ClassGroup[]
-  weekPlans     WeekPlan[]
-  schoolResults SchoolResult[]
+  config           SchoolConfig?
+  schools          School[]
+  users            User[]
+  classGroups      ClassGroup[]
+  weekPlans        WeekPlan[]
+  groupReflections GroupReflection[]
+  clusterPlans     ClusterPlan[]
+  qualityGoals     QualityGoal[]
+  schoolResults    SchoolResult[]
 }
 
 model SchoolConfig {
@@ -65,13 +68,15 @@ model School {
   // (incl. pauzes) staan in SchoolDaySchedule — dat is de bron van waarheid.
   rosterType RosterType @default(TRADITIONAL) // label: TRADITIONAL | CONTINUOUS | CUSTOM
 
-  users         User[]
-  classGroups   ClassGroup[]
-  methods       SchoolMethod[]
-  scheduleItems ScheduleItem[]
-  daySchedules  SchoolDaySchedule[]
-  weekPlans     WeekPlan[]
-  schoolResults SchoolResult[]
+  users            User[]
+  classGroups      ClassGroup[]
+  methods          SchoolMethod[]
+  scheduleItems    ScheduleItem[]
+  daySchedules     SchoolDaySchedule[]
+  weekPlans        WeekPlan[]
+  groupReflections GroupReflection[]
+  clusterPlans     ClusterPlan[]
+  schoolResults    SchoolResult[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -133,6 +138,9 @@ model User {
   sessions              Session[]
   accounts              Account[]
   weekPlans             WeekPlan[]
+  groupReflections      GroupReflection[]
+  clusterPlansCreated   ClusterPlan[]          @relation("ClusterPlanCreatedBy")
+  clusterPlansFixed     ClusterPlan[]          @relation("ClusterPlanVastgesteldDoor")
   classGroupMemberships ClassGroupMembership[]
 
   @@unique([email])
@@ -167,8 +175,10 @@ model ClassGroup {
   grades     Int[] // leerjaren 1-8; combiklas = [3, 4]. Matcht ScheduleItem.targetGrades
   schoolYear String // "2026/2027" (zelfde notatie als SchoolResult.schooljaar)
 
-  memberships ClassGroupMembership[]
-  weekPlans   WeekPlan[]
+  memberships      ClassGroupMembership[]
+  weekPlans        WeekPlan[]
+  groupReflections GroupReflection[]
+  clusterPlans     ClusterPlan[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -316,7 +326,8 @@ model WeekPlan {
   bijzonderheden String?
   status         String  @default("DRAFT")
 
-  lessons Lesson[]
+  lessons     Lesson[]
+  reflections GroupReflection[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -371,4 +382,135 @@ model SchoolResult {
 
   @@index([organizationId])
   @@index([schoolId])
+}
+
+// ---------- Kwaliteitslaag (fase 2): groepsniveau, GEEN leerlingdata ----------
+// Ontwerp: kwaliteitslaag-ontwerpprincipes.md. Planning is geen bewijs;
+// uitvoering en effect apart; een mens beoordeelt, de AI stelt hooguit voor.
+// Vrije tekst gaat altijd door de privacycontrole (lib/privacy.ts).
+
+// Groepsreflectie (de groepsversie van de micro-analyse): per weekplan per vak.
+// Inschatting per niveau door de leerkracht: GEHAALD | DEELS | NOG_NIET (of leeg).
+model GroupReflection {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id])
+  classGroupId   String
+  classGroup     ClassGroup   @relation(fields: [classGroupId], references: [id])
+  weekPlanId     String
+  weekPlan       WeekPlan     @relation(fields: [weekPlanId], references: [id])
+  userId         String // wie de reflectie schreef (groepslid)
+  user           User         @relation(fields: [userId], references: [id])
+
+  subject    String // vak, bijv. "Rekenen"
+  basis      String? // GEHAALD | DEELS | NOG_NIET
+  verlengd   String?
+  verrijking String?
+  goed       String? // wat ging goed
+  aandacht   String? // wat vraagt nog aandacht
+  vervolg    String? // wat neem ik mee naar volgende week
+
+  usedInClusterPlans ClusterPlanSource[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([weekPlanId, subject])
+  @@index([classGroupId])
+  @@index([schoolId])
+  @@index([organizationId])
+}
+
+// Clusterplan: per groep, vak en periode drie instructieclusters.
+// Status: DRAFT (concept) -> VASTGESTELD (door IB/directie) -> GEEVALUEERD.
+// Effect (JA | DEELS | NEE) vult een mens in bij de evaluatie.
+model ClusterPlan {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id])
+  classGroupId   String
+  classGroup     ClassGroup   @relation(fields: [classGroupId], references: [id])
+  createdById    String
+  createdBy      User         @relation("ClusterPlanCreatedBy", fields: [createdById], references: [id])
+
+  subject          String
+  startPeriode     String // ISO-week "2026-W45"
+  evaluatiePeriode String // ISO-week van het evaluatiemoment
+  status           String @default("DRAFT")
+
+  basisDoel        String?
+  basisAanpak      String?
+  intensiefDoel    String?
+  intensiefAanpak  String?
+  verrijkingDoel   String?
+  verrijkingAanpak String?
+
+  evaluatie String? // wat zie je terug (door een mens)
+  effect    String? // JA | DEELS | NEE
+
+  // Optionele koppeling aan een kwaliteitsdoel van het bestuur (PDCA-zicht).
+  qualityGoalId String?
+  qualityGoal   QualityGoal? @relation(fields: [qualityGoalId], references: [id])
+
+  // Herleidbaarheid: op welke groepsreflecties is dit plan gebaseerd.
+  sources ClusterPlanSource[]
+
+  vastgesteldById String?
+  vastgesteldDoor User?     @relation("ClusterPlanVastgesteldDoor", fields: [vastgesteldById], references: [id])
+  vastgesteldAt   DateTime?
+  geevalueerdAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classGroupId])
+  @@index([schoolId])
+  @@index([organizationId])
+  @@index([qualityGoalId])
+}
+
+// Kwaliteitsdoel van het bestuur (uit ambitie-/kwaliteitskaarten), per bestuur
+// configureerbaar. Bron en letterlijke norm staan erbij; Klasmaatje trekt er
+// GEEN conclusies over of de norm gehaald is: het maakt alleen zichtbaar welke
+// planning, reflectie en evaluatie bij het doel horen.
+model QualityGoal {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  code    String // kort en stabiel, bijv. "REK-1F"
+  title   String
+  source  String // bijv. "Ambitiekaart Rekenen, SBP 2025-2029"
+  norm    String? // letterlijke norm uit de bron
+  subject String? // vak voor de koppeling met reflecties en clusterplannen
+
+  // Geldigheidsperiode van de norm (kalenderjaren), bijv. SBP 2025-2029.
+  validFromYear Int
+  validToYear   Int?
+  active        Boolean @default(true)
+
+  clusterPlans ClusterPlan[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, code])
+}
+
+// Koppeling clusterplan -> groepsreflecties waarop het is gebaseerd.
+// Een reflectie die als bron dient, kan niet worden verwijderd (Restrict).
+model ClusterPlanSource {
+  clusterPlanId String
+  clusterPlan   ClusterPlan     @relation(fields: [clusterPlanId], references: [id], onDelete: Cascade)
+  reflectionId  String
+  reflection    GroupReflection @relation(fields: [reflectionId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@id([clusterPlanId, reflectionId])
+  @@index([reflectionId])
 }

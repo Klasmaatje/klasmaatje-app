@@ -43,3 +43,6 @@ next-env.d.ts
 /app/generated/prisma
 .env
 app/generated/prisma
+
+# Blok D: uitkomsten AI-vergelijking (lokaal, niet in git)
+/vergelijking
