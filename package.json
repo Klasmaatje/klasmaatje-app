@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "dev:demo": "node scripts/demo.mjs next dev -p 3001",
+    "demo:migrate": "node scripts/demo.mjs prisma migrate deploy",
+    "demo:seed": "node scripts/demo.mjs tsx prisma/demo-seed.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.72",

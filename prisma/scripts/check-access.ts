@@ -37,7 +37,12 @@ import {
   assertCanFixClusterPlan,
   canViewQualityOverview,
   canUseQualityLayer,
+  canViewQualityGoals,
+  clusterPlanAggregateScope,
+  groupReflectionAggregateScope,
 } from "../../lib/access";
+import { loadPdca, planSignals, reflectionsInRun, type PlanRow } from "../../lib/pdca";
+import { loadIbOverview } from "../../lib/ib-overview";
 import { canApprove, canDelete, canSubmit, statusAfterEdit } from "../../lib/weekplan-status";
 import {
   canEditClusterContent,
@@ -388,6 +393,77 @@ async function run(db: Db) {
   check("concept: meegenomen vervolg in aanpak", draft.intensiefAanpak.includes("Herhaling op maandag."));
   check("concept: kwaliteitsdoel genoemd", draft.basisDoel.includes("Rekenen: 1F eind groep 6"));
   check("concept zonder reflecties: geen verzonnen tellingen", !draftClusterPlan("Taal", []).basisDoel.includes("reflecties"));
+
+  console.log("\n13. Kwaliteitsdoelen (PDCA) en IB-overzicht");
+  check("kwaliteitsdoelen voor IB, directie, kwaliteit, bestuur en platformbeheer",
+    (["TEACHER", "IB", "SCHOOL_ADMIN", "QUALITY_STAFF", "BOARD", "PLATFORM_ADMIN"] as const)
+      .filter(canViewQualityGoals).join() === "IB,SCHOOL_ADMIN,QUALITY_STAFF,BOARD,PLATFORM_ADMIN");
+  const expectAgg: [string, Actor, string[]][] = [
+    ["aggregatie: bestuur telt alle plannen eigen bestuur", board, [cpA1a.id, cpA1b.id, cpA2.id]],
+    ["aggregatie: leerkracht telt niets", teacher, []],
+    ["aggregatie: IB telt eigen school", ib, [cpA1a.id, cpA1b.id]],
+    ["aggregatie: ander bestuur telt alleen eigen plannen", ibOrgB, [cpB1.id]],
+  ];
+  for (const [label, actor, expected] of expectAgg) {
+    const rows = await db.clusterPlan.findMany({ where: { AND: [clusterPlanAggregateScope(actor), { id: { in: testClusterIds } }] }, select: { id: true } });
+    check(label, sameSet(rows.map((r) => r.id), expected));
+  }
+  const reflAggTeacher = await db.groupReflection.count({ where: groupReflectionAggregateScope(teacher) });
+  check("aggregatie: leerkracht telt geen reflecties", reflAggTeacher === 0);
+
+  // Doel in bestuur A, twee plannen eraan, plus (bewust fout) een plan van bestuur B.
+  const goalA = await db.qualityGoal.create({
+    data: { organizationId: orgA.id, code: `${t}-REK`, title: "TEST rekenen", source: "TEST SBP", norm: "TEST norm", subject: "Rekenen", validFromYear: 2025, validToYear: 2029 },
+  });
+  await db.clusterPlan.updateMany({ where: { id: { in: [cpA1a.id, cpA2.id, cpB1.id] } }, data: { qualityGoalId: goalA.id } });
+  await db.clusterPlan.update({ where: { id: cpA2.id }, data: { status: "VASTGESTELD" } });
+  const wpW46 = await db.weekPlan.create({ data: { classGroupId: gA1a.id, schoolId: schoolA1.id, organizationId: orgA.id, userId: teacher.userId, periode: "2026-W46" } });
+  await db.groupReflection.create({
+    data: { organizationId: orgA.id, schoolId: schoolA1.id, classGroupId: gA1a.id, weekPlanId: wpW46.id, userId: teacher.userId, subject: "rekenen ", aandacht: "GEHEIM-AANDACHTSPUNT" },
+  });
+  const day = new Date(Date.UTC(2026, 11, 2)); // week 49
+
+  const boardPdca = await loadPdca(db, board, day);
+  const boardGoal = boardPdca.goals.find((g) => g.goal.id === goalA.id);
+  const boardJson = JSON.stringify(boardPdca);
+  check("PDCA bestuur: alleen tellingen, geen plannenlijst", boardPdca.detail === false && boardGoal?.plans === null);
+  check("PDCA bestuur: geen groepsnamen, ids of teksten",
+    !boardJson.includes("3/4") && !boardJson.includes("groupName") && !boardJson.includes("GEHEIM") && ![cpA1a.id, cpA2.id, gA1a.id, wpW46.id].some((id) => boardJson.includes(id)));
+  check("PDCA bestuur: plan van ander bestuur telt niet mee", boardGoal?.total.plannen === 2);
+  check("PDCA bestuur: per school geteld", boardGoal?.perSchool.map((p) => p.counts.plannen).join() === "1,1");
+  check("PDCA: reflectie telt mee (vak hoofdletterongevoelig)", boardGoal?.total.reflecties === 1);
+  check("PDCA: signalen concept en geen reflectie", boardGoal?.total.signals.CONCEPT === 1 && boardGoal?.total.signals.GEEN_REFLECTIE === 1 && boardGoal?.total.signals.EVALUATIE_OPEN === 0);
+  const ibPdca = await loadPdca(db, ib, day);
+  const ibGoal = ibPdca.goals.find((g) => g.goal.id === goalA.id);
+  check("PDCA IB: alleen eigen school", ibPdca.schools.length === 1 && ibGoal?.total.plannen === 1);
+  check("PDCA IB: details met groepsnaam", ibGoal?.plans?.[0]?.groupName === "3/4" && ibGoal?.plans?.[0]?.reflecties === 1);
+  const teacherPdca = await loadPdca(db, teacher, day);
+  check("PDCA leerkracht: telt niets", teacherPdca.goals.every((g) => g.total.plannen === 0));
+  const orgBPdca = await loadPdca(db, ibOrgB, day);
+  check("PDCA ander bestuur: doel van bestuur A niet zichtbaar", !orgBPdca.goals.some((g) => g.goal.id === goalA.id));
+
+  const run0: PlanRow = { id: "x", schoolId: "s", classGroupId: "g", groupName: null, subject: "Rekenen", status: "VASTGESTELD", effect: null, startPeriode: "2026-W45", evaluatiePeriode: "2026-W47", qualityGoalId: null };
+  check("signaal: evaluatieweek voorbij bij vastgesteld", planSignals(run0, 1, "2026-W48").includes("EVALUATIE_OPEN") && !planSignals(run0, 1, "2026-W47").includes("EVALUATIE_OPEN"));
+  check("signaal: geen reflectie pas na de startweek", !planSignals(run0, 0, "2026-W45").includes("GEEN_REFLECTIE") && planSignals(run0, 0, "2026-W46").includes("GEEN_REFLECTIE"));
+  check("signaal: geëvalueerd plan heeft geen open evaluatie", planSignals({ ...run0, status: "GEEVALUEERD" }, 1, "2026-W50").length === 0);
+  check("reflecties alleen binnen de looptijd",
+    reflectionsInRun(run0, [
+      { classGroupId: "g", subject: "Rekenen", periode: "2026-W44" },
+      { classGroupId: "g", subject: "Rekenen", periode: "2026-W46" },
+      { classGroupId: "g", subject: "Rekenen", periode: "2026-W48" },
+      { classGroupId: "g", subject: "Taal", periode: "2026-W46" },
+      { classGroupId: "h", subject: "Rekenen", periode: "2026-W46" },
+    ], "2026-W50") === 1);
+
+  const ibOv = await loadIbOverview(db, ib, day);
+  check("IB-overzicht IB: alleen eigen school", ibOv.schools.length === 1 && ibOv.schools[0].school.id === schoolA1.id);
+  const g34 = ibOv.schools[0].groups.find((g) => g.id === gA1a.id);
+  check("IB-overzicht: laatste aandachtspunt en lopend plan", g34?.laatsteAandacht?.text === "GEHEIM-AANDACHTSPUNT" && g34?.plannen.length === 1);
+  const qOv = await loadIbOverview(db, quality, day);
+  check("IB-overzicht kwaliteit: scholen eigen bestuur, niet ander bestuur",
+    sameSet(qOv.schools.map((s) => s.school.id), [schoolA1.id, schoolA2.id]));
+  const tOv = await loadIbOverview(db, teacher, day);
+  check("IB-overzicht leerkracht via scopes: geen andere groepen", tOv.schools.flatMap((s) => s.groups).every((g) => g.id === gA1a.id));
 }
 
 async function main() {

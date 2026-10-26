@@ -63,6 +63,11 @@ export const mockProvider: AiProvider = {
         visueelMateriaal: ["Een eenvoudig schema bij het lesdoel. (voorbeeld)"],
         afsluiting: "Terugkijken op het lesdoel. (voorbeeld)",
         materialen: ["wisbordjes"],
+        tijdsindeling: [
+          { onderdeel: "Start en voorkennis", minuten: 5 },
+          { onderdeel: "Instructie en begeleide inoefening", minuten: 15 },
+          { onderdeel: "Zelfstandige verwerking", minuten: 10 },
+        ],
       },
     };
   },

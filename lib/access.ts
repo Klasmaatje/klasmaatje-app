@@ -391,6 +391,33 @@ export function canViewQualityOverview(role: Role): boolean {
   return canViewWeekPlanOverview(role);
 }
 
+/**
+ * Kwaliteitsdoelen (PDCA per doel): IB/directie (eigen school), kwaliteit en
+ * bestuur (alle scholen). Het bestuur krijgt alleen tellingen per school, geen
+ * groepsnamen of teksten (zie lib/pdca.ts, loadPdca).
+ */
+export function canViewQualityGoals(role: Role): boolean {
+  return role === "IB" || role === "SCHOOL_ADMIN" || role === "QUALITY_STAFF" || role === "BOARD" || role === "PLATFORM_ADMIN";
+}
+
+/**
+ * Clusterplannen die meetellen in de AGGREGATIES van Kwaliteitsdoelen.
+ * Bestuur: alle plannen van het eigen bestuur, maar alleen om te tellen.
+ * Overige rollen: dezelfde scope als zien (clusterPlanScope). Leerkracht: niets.
+ */
+export function clusterPlanAggregateScope(actor: Actor): Prisma.ClusterPlanWhereInput {
+  if (actor.role === "BOARD") return actor.organizationId ? { organizationId: actor.organizationId } : NOTHING;
+  if (actor.role === "TEACHER") return NOTHING;
+  return clusterPlanScope(actor);
+}
+
+/** Groepsreflecties die meetellen in de aggregaties (alleen tellen bij bestuur). */
+export function groupReflectionAggregateScope(actor: Actor): Prisma.GroupReflectionWhereInput {
+  if (actor.role === "BOARD") return actor.organizationId ? { organizationId: actor.organizationId } : NOTHING;
+  if (actor.role === "TEACHER") return NOTHING;
+  return groupReflectionScope(actor);
+}
+
 /** Kwaliteitslaag in het menu (reflectie, clusterplannen): iedereen behalve bestuur. */
 export function canUseQualityLayer(role: Role): boolean {
   return role !== "BOARD";

@@ -89,5 +89,5 @@ export async function generateLessonPackage(
   provider: AiProvider
 ): Promise<{ pkg: LessonPackage; notes: string[]; provider: string; usage?: TokenUsage }> {
   const { pkg, usage } = await provider.lessonPackage(buildLessonPrompt(request));
-  return { pkg, notes: checkLessonPackage(pkg), provider: provider.name, usage };
+  return { pkg, notes: checkLessonPackage(pkg, request), provider: provider.name, usage };
 }

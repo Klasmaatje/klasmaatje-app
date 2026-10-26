@@ -27,6 +27,15 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        {process.env.DEMO_MODE === "1" && (
+          <div
+            role="status"
+            className="w-full text-center text-xs font-semibold tracking-wide py-1.5"
+            style={{ background: "#E8B44A", color: "#1F1730" }}
+          >
+            DEMO-OMGEVING SHON · fictieve gegevens, niet de echte SHON-omgeving
+          </div>
+        )}
         {children}
       </body>
     </html>

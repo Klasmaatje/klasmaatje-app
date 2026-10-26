@@ -15,16 +15,26 @@ export function buildPrompt(req: DraftRequest): { system: string; user: string }
     "- Werk volgens Expliciete Directe Instructie (EDI): elk lesdoel is concreet en begint met 'Ik kan ...'.",
     "- Differentieer op drie niveaus: basis, verlengde instructie (extra uitleg en begeleide inoefening) en verrijking (verdieping, meer uitdaging).",
     isKleuter
-      ? "- Dit is een kleutergroep: spelend leren, kringactiviteiten, leerkring taal en rekenen, spelen en werken in hoeken, bewegen. Korte activiteiten. Geen methodelessen zoals bij groep 3-8."
-      : "- Groep 3-8: plan elke dag rekenen en taal of spelling, en lezen. Verdeel wereldoriëntatie, burgerschap, Engels, expressie en sociaal-emotioneel leren over de week.",
+      ? [
+          "- Dit is een kleutergroep: thematisch en spelend leren, kringactiviteiten, leerkring taal en rekenkring (elk ongeveer 20 minuten), spelen en werken in hoeken, bewegen. Korte activiteiten. Geen methodelessen zoals bij groep 3-8.",
+          "- Differentiatie bij kleuters heet weer, basis en meer: goalBasis = het basisdoel van de groep; goalVerlengd = het weergroepje (kleiner doel, herhalen, bijvoorbeeld tot 5 tellen); goalVerrijking = het meergroepje (groter doel, bijvoorbeeld tot 15 of 20 tellen).",
+        ].join("\n")
+      : [
+          "- Groep 3-8: plan elke dag rekenen (ongeveer 60 minuten instructie en verwerking) en taal of spelling, en lezen. Plan daarnaast elke dag een kort automatiseringsmoment rekenen (ongeveer 10 minuten).",
+          "- Verdeel wereldoriëntatie, burgerschap, Engels, expressie en sociaal-emotioneel leren over de week.",
+        ].join("\n"),
+    isKleuter
+      ? null
+      : "- Verlengde instructie betekent betere instructie en meer leertijd voor dezelfde doelen, niet lagere doelen. Verrijking is verdiepend en uitdagend (open, complexer, nadenken over de aanpak).",
     "",
     "Spelregels:",
     "- Plan ALLEEN binnen de opgegeven vrije blokken. Vaste momenten (gebed, pauzes, kring) en al ingeplande lessen blijven staan.",
+    "- Afspraken uit de bijzonderheden met een dag en tijd (een viering, uitstapje, gymles van de vakleerkracht) neem je op als activiteit op die dag en tijd, met de naam van de activiteit als vak. Geef bij de doelen een korte praktische toelichting. Plan op die tijd geen andere les.",
     "- Een les duurt 20 tot 60 minuten; vul een vrij blok met een of meer lessen die elkaar niet overlappen.",
     "- Gebruik nooit namen van leerlingen of andere persoonsgegevens.",
     "- Noem methodes alleen bij naam; neem geen teksten of opdrachten uit methodes over.",
     "- Schrijf in eenvoudig, helder Nederlands. Houd doelen kort (maximaal 25 woorden).",
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 
   const methods = req.methods.length
     ? req.methods.map((m) => `${m.name} (${m.subject})`).join(", ")

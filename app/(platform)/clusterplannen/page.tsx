@@ -18,7 +18,7 @@ export default async function ClusterplannenPage() {
     return (
       <div className="max-w-3xl">
         <h1 className="text-2xl font-semibold" style={{ color: "#1F1730" }}>Clusterplannen</h1>
-        <p className="text-sm mt-2" style={{ color: "#6B5A85" }}>Het bestuur ziet de opvolging per kwaliteitsdoel in het IB-overzicht.</p>
+        <p className="text-sm mt-2" style={{ color: "#6B5A85" }}>Het bestuur ziet de opvolging per kwaliteitsdoel bij Kwaliteitsdoelen.</p>
       </div>
     );
   }

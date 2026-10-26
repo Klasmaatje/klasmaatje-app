@@ -7,7 +7,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, CalendarDays, Sparkles, FolderOpen,
   ClipboardCheck, ChevronsLeft, ChevronsRight, GraduationCap, Users, LogOut,
-  ClipboardList, Clock, Layers, ChartLine,
+  ClipboardList, Clock, Layers, ChartLine, Target,
 } from "lucide-react";
 import { authClient } from "../../lib/auth-client";
 
@@ -22,9 +22,12 @@ type SidebarProps = {
   canViewOverview?: boolean;
   canUseQuality?: boolean;
   canViewQualityOverview?: boolean;
+  canViewQualityGoals?: boolean;
+  /** Mijn Week in het menu; het bestuur heeft geen eigen groepen. */
+  canUseMijnWeek?: boolean;
 };
 
-export default function Sidebar({ userName, roleLabel, organizationName, primaryColor, accentColor, microAnalyseLabel, canManageGroups = false, canViewOverview = false, canUseQuality = false, canViewQualityOverview = false }: SidebarProps) {
+export default function Sidebar({ userName, roleLabel, organizationName, primaryColor, accentColor, microAnalyseLabel, canManageGroups = false, canViewOverview = false, canUseQuality = false, canViewQualityOverview = false, canViewQualityGoals = false, canUseMijnWeek = true }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
@@ -39,7 +42,7 @@ export default function Sidebar({ userName, roleLabel, organizationName, primary
 
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/mijn-week", label: "Mijn Week", icon: CalendarDays },
+    ...(canUseMijnWeek ? [{ href: "/mijn-week", label: "Mijn Week", icon: CalendarDays }] : []),
     { href: "/lesassistent", label: "Lesassistent", icon: Sparkles },
     { href: "/materiaal", label: "Materiaal", icon: FolderOpen },
     ...(canViewOverview ? [{ href: "/weekplannen", label: "Weekplannen", icon: ClipboardList }] : []),
@@ -51,7 +54,7 @@ export default function Sidebar({ userName, roleLabel, organizationName, primary
       : []),
   ];
 
-  // Kwaliteitscyclus: weekplan -> groepsreflectie -> clusterplan -> IB-overzicht.
+  // Kwaliteitscyclus: weekplan -> groepsreflectie -> clusterplan -> IB-overzicht -> kwaliteitsdoelen (PDCA).
   const qualityItems = [
     ...(canUseQuality
       ? [
@@ -60,6 +63,7 @@ export default function Sidebar({ userName, roleLabel, organizationName, primary
         ]
       : []),
     ...(canViewQualityOverview ? [{ href: "/ib-overzicht", label: "IB-overzicht", icon: ChartLine }] : []),
+    ...(canViewQualityGoals ? [{ href: "/kwaliteitsdoelen", label: "Kwaliteitsdoelen", icon: Target }] : []),
   ];
 
   return (

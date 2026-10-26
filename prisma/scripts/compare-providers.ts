@@ -4,6 +4,8 @@
 // Draaien (op de laptop, sleutels staan alleen in .env):
 //   npx tsx prisma/scripts/compare-providers.ts           -> OpenAI en Claude
 //   npx tsx prisma/scripts/compare-providers.ts --proef   -> zonder sleutels, twee keer oefenmodus (test van het script)
+//   npx tsx prisma/scripts/compare-providers.ts --alleen openai   (of anthropic)
+//        -> alleen die aanbieder (geen A/B-vergelijking), bijv. om een verbeterde prompt te toetsen
 //   npx tsx prisma/scripts/compare-providers.ts --herhaal vergelijking/<map> <casus> <A|B>
 //        -> één uitkomst opnieuw laten maken (bijv. na een fout). Blijft blind: de aanbieder
 //           wordt uit sleutel.json gelezen maar niet getoond. Nieuwe uitkomst als
@@ -123,7 +125,7 @@ const LESSON_CASES: { title: string; request: LessonRequest }[] = [
       subject: "Rekenen (kleuters)",
       learningGoal: "Ik kan tot 10 tellen en hoeveelheden tot 10 herkennen.",
       method: null,
-      minutes: 30,
+      minutes: 20, // rekenkring kleuters ca. 20 min (Kwaliteitskaart Rekenonderwijs)
       focus: "Een groepje telt nog niet synchroon (wijzen en tellen tegelijk).",
     },
   },
@@ -344,12 +346,23 @@ async function main() {
     return;
   }
   const proef = process.argv.includes("--proef");
-  const runs: Run[] = proef
+  const a = process.argv.indexOf("--alleen");
+  const only = a !== -1 ? process.argv[a + 1] : null;
+  if (only && only !== "openai" && only !== "anthropic") {
+    console.error("Gebruik: --alleen openai  of  --alleen anthropic");
+    process.exitCode = 1;
+    return;
+  }
+  const all: Run[] = proef
     ? [{ provider: mockProvider, key: "proef1" }, { provider: mockProvider, key: "proef2" }]
     : [{ provider: openaiProvider, key: "openai" }, { provider: anthropicProvider, key: "anthropic" }];
+  const runs: Run[] = only ? all.filter((r) => r.key === only) : all;
 
   if (!proef) {
-    const missing = [!openaiConfigured() && "OPENAI_API_KEY", !anthropicConfigured() && "ANTHROPIC_API_KEY"].filter(Boolean);
+    const missing = [
+      (!only || only === "openai") && !openaiConfigured() && "OPENAI_API_KEY",
+      (!only || only === "anthropic") && !anthropicConfigured() && "ANTHROPIC_API_KEY",
+    ].filter(Boolean);
     if (missing.length > 0) {
       console.error(`Ontbreekt in .env: ${missing.join(", ")}. Gebruik --proef om het script zonder sleutels te testen.`);
       process.exitCode = 1;
@@ -358,7 +371,7 @@ async function main() {
   }
 
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
-  const dir = join("vergelijking", proef ? `${stamp}-proef` : stamp);
+  const dir = join("vergelijking", proef ? `${stamp}-proef` : only ? `${stamp}-${only}` : stamp);
   mkdirSync(dir, { recursive: true });
 
   console.log(`AI-vergelijking${proef ? " (proef, oefenmodus)" : ""}: ${CASES.length + LESSON_CASES.length} fictieve casussen x ${runs.length} aanbieders`);
