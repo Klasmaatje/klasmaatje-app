@@ -62,6 +62,7 @@ function GoalCard({ g, multiSchool, subjectLabel }: { g: GoalPdca; multiSchool: 
           )}
           <p className="text-xs mt-2" style={{ color: MUTED }}>
             Bron: {g.goal.source} · geldig {g.goal.validFromYear}{g.goal.validToYear ? ` t/m ${g.goal.validToYear}` : " en verder"}
+            {" · "}soort norm: ambitie van het bestuur (geen signaleringsgrens, geen wettelijke ondergrens)
           </p>
         </div>
       </div>
@@ -74,26 +75,26 @@ function GoalCard({ g, multiSchool, subjectLabel }: { g: GoalPdca; multiSchool: 
         <>
           <div className="grid gap-3 mt-5 sm:grid-cols-2 lg:grid-cols-4">
             <Tile
-              step="Plan"
-              title="Gepland"
+              step="Plan · bedoeld"
+              title="Wat is afgesproken"
               value={`${plural(c.plannen, "clusterplan", "clusterplannen")} in ${plural(c.groepen, "groep", "groepen")}`}
               sub={`${c.concept} concept · ${c.vastgesteld} vastgesteld · ${c.geevalueerd} geëvalueerd`}
             />
             <Tile
-              step="Do"
-              title="Uitgevoerd"
+              step="Do · uitgevoerd"
+              title="Wat gebeurt aantoonbaar"
               value={plural(c.reflecties, "groepsreflectie", "groepsreflecties")}
               sub={`Teruggekeken door leerkrachten op ${subjectLabel}, binnen de looptijd van de plannen`}
             />
             <Tile
-              step="Check"
+              step="Check · bereikt"
               title="Effect volgens evaluatie"
               value={effectLine(c)}
               sub="Oordeel van IB/directie bij de evaluatie van elk plan"
             />
             <div className="rounded-lg p-4" style={{ background: "#FAF7FD", border: `1px solid ${LINE}` }}>
               <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#8B6FB3" }}>Act</p>
-              <p className="text-xs font-medium mt-0.5" style={{ color: MUTED }}>Open punten</p>
+              <p className="text-xs font-medium mt-0.5" style={{ color: MUTED }}>Open punten en ontbrekend bewijs</p>
               <OpenPoints c={c} />
             </div>
           </div>
@@ -105,9 +106,9 @@ function GoalCard({ g, multiSchool, subjectLabel }: { g: GoalPdca; multiSchool: 
                 <thead>
                   <tr className="text-left text-xs" style={{ color: MUTED }}>
                     <th className="py-2 pr-4 font-medium">School</th>
-                    <th className="py-2 pr-4 font-medium">Gepland</th>
+                    <th className="py-2 pr-4 font-medium">Bedoeld</th>
                     <th className="py-2 pr-4 font-medium">Uitgevoerd</th>
-                    <th className="py-2 pr-4 font-medium">Effect volgens evaluatie</th>
+                    <th className="py-2 pr-4 font-medium">Bereikt (volgens evaluatie)</th>
                     <th className="py-2 font-medium">Open punten</th>
                   </tr>
                 </thead>
@@ -213,7 +214,8 @@ export default async function KwaliteitsdoelenPage() {
         <h2 id="niet" className="text-sm font-semibold" style={{ color: INK }}>Wat dit overzicht niet zegt</h2>
         <ul className="text-sm mt-2 flex flex-col gap-1 list-disc pl-5" style={{ color: MUTED }}>
           <li>Of een norm gehaald wordt, blijkt uit toetsresultaten op groepsniveau. Die koppeling (import uit ParnasSys) volgt.</li>
-          <li>Een gepland of uitgevoerd plan is nog geen bewijs van effect; het effect is het oordeel van IB/directie bij de evaluatie.</li>
+          <li>Een ingevuld plan bewijst geen uitvoering, en een uitgevoerd plan nog geen effect. Het effect is het oordeel van IB/directie bij de evaluatie.</li>
+          <li>Een niet behaalde ambitie is geen wettelijke tekortkoming. Interventieniveaus (groen, geel, oranje, rood) zijn besluiten van directeur of bestuurder, niet van Klasmaatje.</li>
           <li>Er staan geen leerlinggegevens in Klasmaatje: alles is op groepsniveau.</li>
         </ul>
       </section>

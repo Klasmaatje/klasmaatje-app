@@ -3,14 +3,15 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { AccessError, assertCanViewClusterPlan, clusterPlanScope } from "@/lib/access";
 import { requireActor } from "@/lib/current-actor";
-import { formatPeriode, parsePeriode, mondayOfIsoWeek, upcomingWeeks } from "@/lib/week";
+import { formatPeriode, parsePeriode, mondayOfIsoWeek, todayInNetherlands, upcomingWeeks } from "@/lib/week";
 import {
-  CLUSTERS, CP_DRAFT, CP_EVALUATED, CP_FIXED, EFFECT_LABEL, canEditClusterContent, parseEffect,
+  CLUSTERS, CP_DRAFT, CP_EVALUATED, CP_FIXED, EFFECT_LABEL, UITVOERING_LABEL, VERVOLG_LABEL, canEditClusterContent, parseEffect, parseVervolgbesluit,
 } from "@/lib/quality";
+import { providerLabel } from "@/lib/ai";
 import ClusterStatusBadge from "../cluster-status-badge";
 import { LevelChips } from "../../micro-analyse/reflection-card";
 import { deleteClusterPlan } from "../actions";
-import { EditClusterForm, EvaluateClusterForm, FixClusterButton } from "./forms";
+import { EditClusterForm, EvaluateClusterForm, FixClusterButton, RegenerateClusterButton } from "./forms";
 
 const card = { border: "1px solid #E8DFF5" };
 const dateFmt = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", day: "numeric", month: "long", year: "numeric" });
@@ -54,6 +55,8 @@ export default async function ClusterPlanPage({ params }: { params: Promise<{ id
   const canWrite = Boolean(membership) || isSupportHere;
   const canFixHere = isSupportHere && !membership && plan.status === CP_DRAFT;
 
+  const config = await prisma.schoolConfig.findUnique({ where: { organizationId: plan.organizationId }, select: { aiProvider: true } });
+  const aiLabel = providerLabel(config?.aiProvider);
   const goals = await prisma.qualityGoal.findMany({
     where: { organizationId: plan.organizationId, active: true },
     select: { id: true, title: true },
@@ -66,6 +69,9 @@ export default async function ClusterPlanPage({ params }: { params: Promise<{ id
 
   const sources = [...plan.sources].sort((a, b) => b.reflection.weekPlan.periode.localeCompare(a.reflection.weekPlan.periode));
   const effect = parseEffect(plan.effect);
+  const uitvoering = parseEffect(plan.uitvoering);
+  const vervolg = parseVervolgbesluit(plan.vervolgbesluit);
+  const controlWeeks = upcomingWeeks(todayInNetherlands(), 16);
   const weekLabel = (p: string) => formatPeriode(p).split(" · ")[0];
 
   return (
@@ -129,12 +135,22 @@ export default async function ClusterPlanPage({ params }: { params: Promise<{ id
 
       <section className="rounded-xl bg-white p-5 mb-4" style={card}>
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-          <h2 className="font-semibold" style={{ color: "#1F1730" }}>Clusters</h2>
+          <h2 className="font-semibold" style={{ color: "#1F1730" }}>Groepsanalyse en clusters</h2>
           <p className="text-xs" style={{ color: "#6B5A85" }}>
             {plan.status === CP_DRAFT && "Concept: de leerkracht en IB passen aan, daarna stelt IB of directie het vast."}
             {plan.status !== CP_DRAFT && plan.vastgesteldAt && `Vastgesteld door ${plan.vastgesteldDoor?.name ?? "onbekend"} op ${dateFmt.format(plan.vastgesteldAt)}.`}
           </p>
         </div>
+        {plan.conceptBron && (
+          <p className="text-xs mb-3 rounded-lg px-3 py-2" style={{ background: "#FFF8E6", color: "#6B4A00" }}>
+            Concept geschreven door {plan.conceptBron}. Controleer en pas aan: jullie kennen de groep. Toetsgegevens (Cito M/E) staan nog niet in Klasmaatje; vul de analyse daarmee aan.
+          </p>
+        )}
+        {canWrite && plan.status === CP_DRAFT && (
+          <div className="mb-4">
+            <RegenerateClusterButton id={plan.id} aiLabel={aiLabel} />
+          </div>
+        )}
         {canWrite && canEditClusterContent(plan.status) ? (
           <EditClusterForm
             id={plan.id}
@@ -147,6 +163,11 @@ export default async function ClusterPlanPage({ params }: { params: Promise<{ id
             isFixed={plan.status === CP_FIXED}
           />
         ) : (
+          <>
+          <div className="rounded-lg p-3 mb-3" style={{ background: "#FAF8FD", border: "1px solid #EFE8F8" }}>
+            <p className="text-xs font-medium" style={{ color: "#8B6FB3" }}>Groepsanalyse</p>
+            <p className="text-sm whitespace-pre-line" style={{ color: "#1F1730" }}>{plan.analyse ?? "nog niet ingevuld"}</p>
+          </div>
           <div className="grid gap-3 lg:grid-cols-3">
             {CLUSTERS.map((c) => (
               <div key={c.key} className="rounded-lg p-3" style={{ background: "#FAF8FD", border: "1px solid #EFE8F8" }}>
@@ -158,6 +179,7 @@ export default async function ClusterPlanPage({ params }: { params: Promise<{ id
               </div>
             ))}
           </div>
+          </>
         )}
       </section>
 
@@ -174,12 +196,18 @@ export default async function ClusterPlanPage({ params }: { params: Promise<{ id
         {plan.status === CP_EVALUATED ? (
           <>
             <p className="text-sm whitespace-pre-line" style={{ color: "#1F1730" }}>{plan.evaluatie}</p>
-            <p className="text-sm mt-2 font-medium" style={{ color: "#1F4E79" }}>
-              {effect ? EFFECT_LABEL[effect] : ""}{plan.geevalueerdAt ? ` · ${dateFmt.format(plan.geevalueerdAt)}` : ""}
-            </p>
+            <ul className="text-sm mt-3 flex flex-col gap-1" style={{ color: "#1F4E79" }}>
+              <li><span className="font-medium">Uitvoering:</span> {uitvoering ? UITVOERING_LABEL[uitvoering] : "niet beoordeeld"}</li>
+              <li><span className="font-medium">Effect:</span> {effect ? EFFECT_LABEL[effect] : "niet beoordeeld"}</li>
+              <li>
+                <span className="font-medium">Vervolgbesluit:</span> {vervolg ? VERVOLG_LABEL[vervolg] : "niet vastgelegd"}
+                {plan.volgendeControle ? ` · volgende controle ${weekLabel(plan.volgendeControle).toLowerCase()}` : ""}
+              </li>
+              {plan.geevalueerdAt && <li className="text-xs" style={{ color: "#6B5A85" }}>Vastgelegd op {dateFmt.format(plan.geevalueerdAt)}</li>}
+            </ul>
           </>
         ) : plan.status === CP_FIXED && canWrite ? (
-          <EvaluateClusterForm id={plan.id} />
+          <EvaluateClusterForm id={plan.id} weeks={controlWeeks} aiLabel={aiLabel} />
         ) : (
           <p className="text-sm" style={{ color: "#6B5A85" }}>
             {plan.status === CP_DRAFT ? "Evalueren kan zodra het plan is vastgesteld." : "Nog niet geëvalueerd."}

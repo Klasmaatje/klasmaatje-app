@@ -46,7 +46,7 @@ export type SignalKey = (typeof SIGNALS)[number];
 export const SIGNAL_LABEL: Record<SignalKey, string> = {
   EVALUATIE_OPEN: "Evaluatiemoment voorbij, evaluatie nog niet vastgelegd",
   CONCEPT: "Clusterplan nog niet vastgesteld",
-  GEEN_REFLECTIE: "Nog geen groepsreflectie op dit vak sinds de start",
+  GEEN_REFLECTIE: "Bewijs van uitvoering ontbreekt: nog geen groepsreflectie op dit vak sinds de start",
 };
 
 export type Counts = {

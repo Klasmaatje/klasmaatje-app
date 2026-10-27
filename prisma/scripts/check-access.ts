@@ -40,7 +40,14 @@ import {
   canViewQualityGoals,
   clusterPlanAggregateScope,
   groupReflectionAggregateScope,
+  lessonPackageScope,
+  assertCanManageLessonPackage,
+  assertCanViewLessonPackage,
 } from "../../lib/access";
+import { buildClusterPrompt, generateClusterDraft, type ClusterRequest } from "../../lib/ai/cluster";
+import { checkLessonPackage, type LessonPackage } from "../../lib/ai/lesson";
+import { mockProvider } from "../../lib/ai/providers/mock";
+import { parseVervolgbesluit } from "../../lib/quality";
 import { loadPdca, planSignals, reflectionsInRun, type PlanRow } from "../../lib/pdca";
 import { loadIbOverview } from "../../lib/ib-overview";
 import { canApprove, canDelete, canSubmit, statusAfterEdit } from "../../lib/weekplan-status";
@@ -464,6 +471,66 @@ async function run(db: Db) {
     sameSet(qOv.schools.map((s) => s.school.id), [schoolA1.id, schoolA2.id]));
   const tOv = await loadIbOverview(db, teacher, day);
   check("IB-overzicht leerkracht via scopes: geen andere groepen", tOv.schools.flatMap((s) => s.groups).every((g) => g.id === gA1a.id));
+
+  console.log("\n14. Lespakketten");
+  const lp = (classGroupId: string, schoolId: string, organizationId: string, createdById: string) =>
+    db.lessonPackage.create({
+      data: {
+        classGroupId, schoolId, organizationId, createdById, grades: [5], subject: "Rekenen", learningGoal: "TEST", minutes: 45,
+        content: {}, provider: "Oefenmodus",
+      },
+    });
+  const lpA1a = await lp(gA1a.id, schoolA1.id, orgA.id, teacher.userId);
+  const lpA2 = await lp(gA2.id, schoolA2.id, orgA.id, teacherA2.userId);
+  const lpB1 = await lp(gB1.id, schoolB1.id, orgB.id, teacherOrgB.userId);
+  const testLpIds = [lpA1a.id, lpA2.id, lpB1.id];
+  const expectLp: [string, Actor, string[]][] = [
+    ["leerkracht ziet lespakket eigen groep", teacher, [lpA1a.id]],
+    ["duo-partner ziet lespakket van de groep", duo, [lpA1a.id]],
+    ["leerkracht zonder groep ziet niets", teacherNoGroup, []],
+    ["IB ziet lespakketten eigen school", ib, [lpA1a.id]],
+    ["kwaliteitsmedewerker ziet lespakketten hele bestuur", quality, [lpA1a.id, lpA2.id]],
+    ["bestuur ziet geen lespakketten", board, []],
+    ["ander bestuur ziet alleen eigen lespakket", ibOrgB, [lpB1.id]],
+  ];
+  for (const [label, actor, expected] of expectLp) {
+    const rows = await db.lessonPackage.findMany({ where: { AND: [lessonPackageScope(actor), { id: { in: testLpIds } }] }, select: { id: true } });
+    check(label, sameSet(rows.map((r) => r.id), expected));
+  }
+  await expectStatus("duo-partner mag lespakket verwijderen", () => assertCanManageLessonPackage(db, duo, lpA1a.id), "ok");
+  await expectStatus("IB bekijkt lespakket eigen school", () => assertCanViewLessonPackage(db, ib, lpA1a.id), "ok");
+  await expectStatus("IB verwijdert lespakket niet (403)", () => assertCanManageLessonPackage(db, ib, lpA1a.id), 403);
+  await expectStatus("leerkracht andere school: lespakket bestaat niet (404)", () => assertCanViewLessonPackage(db, teacherA2, lpA1a.id), 404);
+  await expectStatus("ander bestuur: lespakket bestaat niet (404)", () => assertCanManageLessonPackage(db, ibOrgB, lpA1a.id), 404);
+  await expectStatus("bestuur: lespakket bestaat niet (404)", () => assertCanViewLessonPackage(db, board, lpA1a.id), 404);
+
+  const okPkg: LessonPackage = {
+    titel: "T", lesdoel: "Ik kan iets.", succescriteria: ["a"], voorkennis: "v",
+    instructie: [{ fase: "Ik", uitleg: "x" }, { fase: "Wij", uitleg: "x" }, { fase: "Jij", uitleg: "x" }],
+    controleVanBegrip: [1, 2, 3].map(() => ({ vraag: "q", verwachtAntwoord: "a" })),
+    intensief: { aanpak: "a", opdracht: "o" }, basis: { aanpak: "a", opdracht: "o" }, verrijking: { aanpak: "a", opdracht: "o" },
+    werkblad: (["intensief", "basis", "verrijking"] as const).flatMap((niveau) => [1, 2].map(() => ({ niveau, opdracht: "o", antwoord: "a" }))),
+    visueelMateriaal: ["v"], afsluiting: "a", tijdsindeling: [{ onderdeel: "x", minuten: 40 }, { onderdeel: "y", minuten: 5 }], materialen: ["m"],
+  };
+  const req = { grades: [5], subject: "Rekenen", learningGoal: "x", method: null, minutes: 45, focus: null };
+  check("lespakket-controle: in orde", checkLessonPackage(okPkg, req).length === 0);
+  check("lespakket-controle: tijdsindeling klopt niet", checkLessonPackage({ ...okPkg, tijdsindeling: [{ onderdeel: "x", minuten: 50 }] }, req).some((n) => n.includes("50 minuten")));
+
+  console.log("\n15. AI-clusterplan (SHON-format)");
+  const creq: ClusterRequest = {
+    grades: [5], subject: "Rekenen", startWeek: "week 45", evaluatieWeek: "week 49",
+    goal: { code: "REK-1F", title: "Rekenen 1F", norm: "75% 1S", source: "SBP" },
+    reflections: [{ periode: "2026-W44", basis: "GEHAALD", verlengd: "DEELS", verrijking: null, goed: "Wisbordjes werkten.", aandacht: "Gelijknamig maken.", vervolg: "Herhalen." }],
+  };
+  const cp = buildClusterPrompt(creq);
+  check("prompt: SHON-regels (geen indeling, geen verzonnen scores)", cp.system.includes("Deel geen leerlingen in clusters in") && cp.system.includes("Verzin geen toetsscores"));
+  check("prompt: OOM en vier weken", cp.system.includes("OOM") && cp.system.includes("vier weken"));
+  check("prompt: reflectie met weeknummer en letterlijke norm", cp.user.includes("week 44") && cp.user.includes('"75% 1S"'));
+  check("prompt kleuters: weer/meer", buildClusterPrompt({ ...creq, grades: [1, 2] }).system.includes("weergroepje"));
+  const mockDraft = await generateClusterDraft(creq, mockProvider);
+  check("oefenmodus: analyse noemt ontbrekend bewijs", mockDraft.draft.analyse.includes("bewijs ontbreekt") && mockDraft.source === "Oefenmodus");
+  check("oefenmodus: clusters herleidbaar", mockDraft.draft.intensiefDoel.includes("Gelijknamig maken."));
+  check("vervolgbesluit: alleen bekende waarden", parseVervolgbesluit("AFRONDEN") === "AFRONDEN" && parseVervolgbesluit("STOPPEN") === null);
 }
 
 async function main() {

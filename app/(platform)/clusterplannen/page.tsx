@@ -6,6 +6,7 @@ import { formatPeriode, upcomingWeeks, todayInNetherlands } from "@/lib/week";
 import { EFFECT_LABEL, parseEffect } from "@/lib/quality";
 import ClusterStatusBadge from "./cluster-status-badge";
 import NewClusterForm from "./new-cluster-form";
+import { providerLabel } from "@/lib/ai";
 
 // Clusterplannen per groep, vak en periode (groepsniveau, geen leerlingdata).
 // Schrijven: groepsleden en IB/directie van de school. Kwaliteit leest mee.
@@ -39,6 +40,9 @@ export default async function ClusterplannenPage() {
     orderBy: [{ school: { code: "asc" } }, { name: "asc" }],
   });
 
+  const config = actor.organizationId
+    ? await prisma.schoolConfig.findUnique({ where: { organizationId: actor.organizationId }, select: { aiProvider: true } })
+    : null;
   const [plans, reflectionSubjects, goals] = await Promise.all([
     prisma.clusterPlan.findMany({
       where: clusterPlanScope(actor),
@@ -82,6 +86,7 @@ export default async function ClusterplannenPage() {
               subjects={subjects}
               weeks={weeks}
               goals={goals}
+              aiLabel={providerLabel(config?.aiProvider)}
             />
           </div>
         </details>

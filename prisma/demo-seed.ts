@@ -14,6 +14,10 @@
 // Bij opnieuw draaien wordt het demo-bestuur eerst helemaal verwijderd en opnieuw
 // opgebouwd (datums relatief aan vandaag). Andere gegevens worden niet aangeraakt.
 //
+// AI: met DEMO_AI=1 (in .env.demo of op de opdrachtregel) schrijft de ingestelde
+// AI (OpenAI) de clusterplannen en twee lespakketten, zoals in de app. Dat kost
+// enkele minuten en een paar dubbeltjes. Zonder DEMO_AI: oefenmodus (vaste opbouw).
+//
 // Accounts: één demowachtwoord voor alle demo-accounts. Staat DEMO_PASSWORD in
 // .env.demo, dan wordt dat gebruikt; anders wordt er een gemaakt. Wachtwoord en
 // accounts worden weggeschreven in .demo-accounts.txt (niet in git).
@@ -29,8 +33,10 @@ import { SCHEDULE_ITEM_TEMPLATES } from "./data/schedule-items";
 import { resolveDayForGroup, toMinutes, fromMinutes } from "../lib/schedule-items";
 import { freeBlocks } from "../lib/ai/free-blocks";
 import { WEEKDAYS, isoWeekOf, periodeKey, todayInNetherlands, schoolYearOf } from "../lib/week";
-import { draftClusterPlan } from "../lib/cluster-draft";
 import { parseLevel } from "../lib/quality";
+import { generateClusterDraft, type ClusterRequest } from "../lib/ai/cluster";
+import { generateLessonPackage, pickProvider } from "../lib/ai";
+import { mockProvider } from "../lib/ai/providers/mock";
 
 const SHON_PROJECT_REF = "naeijrpkbjlrcrdxaids";
 const DEMO_SLUG = "shon-demo";
@@ -365,39 +371,84 @@ async function main() {
     }
   }
 
-  // Clusterplannen: concept uit de reflecties (zelfde opbouw als in de app), met bron
+  // Clusterplannen: concept uit de reflecties via dezelfde motor als in de app
+  // (SHON-format: groepsanalyse, doelen en aanpak per cluster), met bron.
+  const useAi = process.env.DEMO_AI === "1";
+  const provider = useAi ? pickProvider("openai") : mockProvider;
+  if (useAi) console.log(`AI voor clusterplannen en lespakketten: ${provider.name} (${provider.model}). Dit duurt enkele minuten.`);
+  const weekLabel = (offset: number) => `week ${isoWeekOf(new Date(todayInNetherlands().getTime() + offset * 7 * DAY_MS)).week}`;
   async function cluster(key: string, subject: string, goalCode: string | null, start: number, evalOffset: number,
-    status: "DRAFT" | "VASTGESTELD" | "GEEVALUEERD", fixedBy: string | null, evaluatie?: string, effect?: "JA" | "DEELS" | "NEE") {
+    status: "DRAFT" | "VASTGESTELD" | "GEEVALUEERD", fixedBy: string | null,
+    evaluation?: { evaluatie: string; effect: "JA" | "DEELS" | "NEE"; uitvoering: "JA" | "DEELS" | "NEE"; vervolg: "VOORTZETTEN" | "AANPASSEN" | "INTENSIVEREN" | "AFRONDEN"; volgende?: number }) {
     const grp = groupIds[key];
     const sourceIds = reflIds[`${key}|${subject}`] ?? [];
     const refl = await prisma.groupReflection.findMany({
       where: { id: { in: sourceIds } }, include: { weekPlan: { select: { periode: true } } }, orderBy: { weekPlan: { periode: "desc" } },
     });
-    const goal = goalCode ? GOALS.find((g) => g.code === goalCode) : null;
-    const content = draftClusterPlan(subject, refl.map((r) => ({
-      periode: r.weekPlan.periode, basis: parseLevel(r.basis), verlengd: parseLevel(r.verlengd), verrijking: parseLevel(r.verrijking),
-      aandacht: r.aandacht, vervolg: r.vervolg,
-    })), goal?.title);
+    const goal = goalCode ? GOALS.find((g) => g.code === goalCode) ?? null : null;
+    const request: ClusterRequest = {
+      grades: grp.grades, subject, startWeek: weekLabel(start), evaluatieWeek: weekLabel(evalOffset),
+      goal: goal ? { code: goal.code, title: goal.title, norm: goal.norm, source: goal.source } : null,
+      reflections: refl.map((r) => ({
+        periode: r.weekPlan.periode, basis: parseLevel(r.basis), verlengd: parseLevel(r.verlengd), verrijking: parseLevel(r.verrijking),
+        goed: r.goed, aandacht: r.aandacht, vervolg: r.vervolg,
+      })),
+    };
+    const { draft, source } = await generateClusterDraft(request, provider);
+    if (useAi) console.log(`  clusterplan ${key} ${subject}: klaar`);
     await prisma.clusterPlan.create({
       data: {
         organizationId: org.id, schoolId: grp.schoolId, classGroupId: grp.id, createdById: teacherIds[key],
         subject, startPeriode: weekKey(start), evaluatiePeriode: weekKey(evalOffset), status,
-        qualityGoalId: goalCode ? goals[goalCode] : null, ...content,
+        qualityGoalId: goalCode ? goals[goalCode] : null, ...draft, conceptBron: source,
         vastgesteldById: status === "DRAFT" ? null : fixedBy, vastgesteldAt: status === "DRAFT" ? null : new Date(Date.now() + start * 7 * DAY_MS),
-        evaluatie: evaluatie ?? null, effect: effect ?? null,
+        evaluatie: evaluation?.evaluatie ?? null, effect: evaluation?.effect ?? null,
+        uitvoering: evaluation?.uitvoering ?? null, vervolgbesluit: evaluation?.vervolg ?? null,
+        volgendeControle: evaluation?.volgende !== undefined ? weekKey(evaluation.volgende) : null,
         geevalueerdAt: status === "GEEVALUEERD" ? new Date(Date.now() + evalOffset * 7 * DAY_MS) : null,
         sources: { create: sourceIds.map((reflectionId) => ({ reflectionId })) },
       },
     });
   }
-  await cluster("SVS/5a", "Rekenen", "REK-1F", -1, 4, "VASTGESTELD", ibId);
-  await cluster("SVS/7a", "Begrijpend lezen", "TAAL-2F", -6, -1, "GEEVALUEERD", ibId,
-    "Methodetoets en observaties: de meeste leerlingen formuleren de hoofdgedachte nu in eigen woorden; bij langere teksten zakt het intensieve cluster nog terug.", "DEELS");
+  await cluster("SVS/5a", "Rekenen", "REK-1F", -1, 3, "VASTGESTELD", ibId);
+  await cluster("SVS/7a", "Begrijpend lezen", "TAAL-2F", -6, -1, "GEEVALUEERD", ibId, {
+    evaluatie: "Drie keer per week OOM (15 minuten) gerealiseerd, één week uitgevallen door ziekte. Methodetoets en observaties: de meeste leerlingen formuleren de hoofdgedachte nu in eigen woorden; bij langere teksten zakt het intensieve cluster nog terug.",
+    uitvoering: "DEELS", effect: "DEELS", vervolg: "AANPASSEN", volgende: 3,
+  });
   await cluster("SVS/1", "Rekenkring", "REK-1F", 0, 4, "DRAFT", null);
-  await cluster("SKS/5/6", "Rekenen", "REK-1F", -2, -1, "VASTGESTELD", null); // evaluatie staat open (week voorbij)
-  await cluster("SLS/6a", "Rekenen", "REK-1F", -3, 3, "VASTGESTELD", null);
-  await cluster("SSS/7", "Begrijpend lezen", "TAAL-2F", -4, -1, "GEEVALUEERD", null,
-    "Samenvatten met drie kernzinnen werkt: bij de laatste methodetoets haalde het intensieve cluster het doel.", "JA");
+  await cluster("SKS/5/6", "Rekenen", "REK-1F", -5, -1, "VASTGESTELD", null); // evaluatie staat open (week voorbij)
+  await cluster("SLS/6a", "Rekenen", "REK-1F", -3, 1, "VASTGESTELD", null);
+  await cluster("SSS/7", "Begrijpend lezen", "TAAL-2F", -5, -1, "GEEVALUEERD", null, {
+    evaluatie: "OOM-momenten volgens plan gegeven. Samenvatten met drie kernzinnen werkt: bij de laatste methodetoets haalde het intensieve cluster het doel.",
+    uitvoering: "JA", effect: "JA", vervolg: "AFRONDEN",
+  });
+
+  // Lespakketten (alleen met DEMO_AI=1): bij een rekenles van 5a en de rekenkring van groep 1, deze week.
+  if (useAi) {
+    for (const [key, subject] of [["SVS/5a", "Rekenen"], ["SVS/1", "Rekenkring"]] as const) {
+      const grp = groupIds[key];
+      const lesson = await prisma.lesson.findFirst({
+        where: { weekPlanId: planIds[`${key}@0`], subject, type: "les" },
+        orderBy: { timeSlot: "asc" },
+      });
+      if (!lesson) continue;
+      const m = /^(\d{2}:\d{2})-(\d{2}:\d{2})$/.exec(lesson.timeSlot ?? "");
+      const minutes = m ? toMinutes(m[2]) - toMinutes(m[1]) : 45;
+      const focus = (await prisma.groupReflection.findFirst({
+        where: { classGroupId: grp.id, subject, aandacht: { not: null } }, orderBy: { weekPlan: { periode: "desc" } }, select: { aandacht: true },
+      }))?.aandacht ?? null;
+      const request = { grades: grp.grades, subject, learningGoal: lesson.goalBasis ?? subject, method: null, minutes, focus };
+      const result = await generateLessonPackage(request, provider);
+      await prisma.lessonPackage.create({
+        data: {
+          organizationId: org.id, schoolId: grp.schoolId, classGroupId: grp.id, lessonId: lesson.id, createdById: teacherIds[key],
+          ...request, content: result.pkg, checks: result.notes, provider: result.provider, model: provider.model,
+          inputTokens: result.usage?.inputTokens ?? null, outputTokens: result.usage?.outputTokens ?? null,
+        },
+      });
+      console.log(`  lespakket ${key} ${subject}: klaar`);
+    }
+  }
 
   // Accountoverzicht voor de presentator (niet in git)
   const lines = [

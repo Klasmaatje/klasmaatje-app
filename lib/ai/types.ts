@@ -52,6 +52,11 @@ export type AiProvider = {
   ): Promise<{ lessons: LessonDraft[]; usage?: TokenUsage }>;
   /** Lespakket (groep + vak + leerdoel). Zie lib/ai/lesson.ts. */
   lessonPackage(prompt: { system: string; user: string }): Promise<{ pkg: LessonPackage; usage?: TokenUsage }>;
+  /**
+   * Algemene gestructureerde uitvoer volgens een zod-schema (clusterplan, evaluatie).
+   * De oefenmodus ondersteunt dit niet; de motor gebruikt daar een vaste opbouw.
+   */
+  structured<T>(schema: z.ZodType<T>, prompt: { system: string; user: string }): Promise<{ output: T; usage?: TokenUsage }>;
 };
 
 /**

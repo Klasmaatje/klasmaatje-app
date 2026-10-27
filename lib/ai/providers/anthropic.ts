@@ -41,4 +41,15 @@ export const anthropicProvider: AiProvider = {
     });
     return { pkg: output, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
   },
+  async structured(schema, prompt) {
+    const client = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const { output, usage } = await generateText({
+      model: client(process.env.ANTHROPIC_MODEL || DEFAULT_MODEL),
+      system: prompt.system,
+      prompt: prompt.user,
+      output: Output.object({ schema }),
+      maxOutputTokens: maxOutputTokens(),
+    });
+    return { output, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
+  },
 };

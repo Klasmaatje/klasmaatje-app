@@ -67,7 +67,7 @@ export default function Sidebar({ userName, roleLabel, organizationName, primary
   ];
 
   return (
-    <aside className={`flex flex-col justify-between shrink-0 transition-all duration-300 ${collapsed ? "w-20" : "w-72"}`} style={{ background: primaryColor }}>
+    <aside className={`flex flex-col justify-between shrink-0 transition-all duration-300 print:hidden ${collapsed ? "w-20" : "w-72"}`} style={{ background: primaryColor }}>
       <div>
         <div className="flex items-center gap-3 px-5 pt-6 pb-8">
           <div className="relative w-18 h-18 shrink-0">

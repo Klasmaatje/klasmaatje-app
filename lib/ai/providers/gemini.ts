@@ -42,4 +42,16 @@ export const geminiProvider: AiProvider = {
     });
     return { pkg: output, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
   },
+  async structured(schema, prompt) {
+    const client = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY });
+    const { output, usage } = await generateText({
+      model: client(process.env.GEMINI_MODEL || DEFAULT_MODEL),
+      system: prompt.system,
+      prompt: prompt.user,
+      output: Output.object({ schema }),
+      maxOutputTokens: maxOutputTokens(),
+      temperature: 0.4,
+    });
+    return { output, usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } };
+  },
 };

@@ -71,4 +71,8 @@ export const mockProvider: AiProvider = {
       },
     };
   },
+  async structured() {
+    // Niet gebruikt: de motor (lib/ai/cluster.ts) maakt in oefenmodus een vaste opbouw.
+    throw new Error("Oefenmodus ondersteunt geen vrije gestructureerde uitvoer.");
+  },
 };

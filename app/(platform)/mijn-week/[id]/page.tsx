@@ -17,6 +17,7 @@ import DraftButton from "./draft-button";
 import { providerLabel } from "@/lib/ai";
 import { subjectsFromLessons } from "@/lib/quality";
 import ReflectionSection from "../../micro-analyse/reflection-section";
+import LessonPackageButton from "./lesson-package-button";
 
 type Entry = {
   id: string;
@@ -26,7 +27,11 @@ type Entry = {
   hint: string | null;
   goals: { basis: string | null; verlengd: string | null; verrijking: string | null } | null;
   deletable: boolean; // echte Lesson-regel in dit plan
+  packageId: string | null; // nieuwste lespakket bij deze les
+  canPackage: boolean; // lespakket mogelijk (les of OOM)
 };
+
+const PACKAGE_TYPES = ["les", "oom"];
 
 const SNAPSHOT_TYPES = ["routine", "pauze"];
 
@@ -50,6 +55,7 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
         select: {
           id: true, dag: true, timeSlot: true, type: true, subject: true,
           goalBasis: true, goalVerlengd: true, goalVerrijking: true,
+          lessonPackages: { select: { id: true }, orderBy: { createdAt: "desc" }, take: 1 },
         },
       },
       reflections: {
@@ -117,6 +123,8 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
           ? null
           : { basis: l.goalBasis, verlengd: l.goalVerlengd, verrijking: l.goalVerrijking },
         deletable: true,
+        packageId: l.lessonPackages[0]?.id ?? null,
+        canPackage: PACKAGE_TYPES.includes(l.type),
       }));
     let live: Entry[] = [];
     if (!hasSnapshot) {
@@ -130,6 +138,8 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
           hint: s.item.aiHint,
           goals: null,
           deletable: false,
+          packageId: null,
+          canPackage: false,
         }));
       }
     }
@@ -226,6 +236,11 @@ export default async function WeekPlanPage({ params }: { params: Promise<{ id: s
                         )}
                       </div>
                     )}
+                    {e.canPackage && (e.packageId ? (
+                      <a href={`/materiaal/${e.packageId}`} className="mt-1 inline-block underline underline-offset-2" style={{ color: "#3D2467" }}>Lespakket bekijken</a>
+                    ) : canEdit ? (
+                      <LessonPackageButton lessonId={e.id} />
+                    ) : null)}
                     {canEdit && e.deletable && (
                       <form action={deleteLesson} className="absolute right-1 top-1">
                         <input type="hidden" name="weekPlanId" value={plan.id} />

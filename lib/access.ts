@@ -391,6 +391,34 @@ export function canViewQualityOverview(role: Role): boolean {
   return canViewWeekPlanOverview(role);
 }
 
+// ---------- Lespakketten (AI-lesvoorbereiding) ----------
+// Zien: zelfde scope als weekplannen (groepen die je mag zien; bestuur niets).
+// Maken en verwijderen: alleen groepsleden (het is de les van de leerkracht).
+
+/** Welke lespakketten deze gebruiker mag ZIEN. */
+export function lessonPackageScope(actor: Actor): Prisma.LessonPackageWhereInput {
+  if (actor.role === "PLATFORM_ADMIN") return {};
+  if (actor.role === "BOARD" || !actor.organizationId) return NOTHING;
+  return { organizationId: actor.organizationId, classGroup: classGroupScope(actor) };
+}
+
+/** Mag deze gebruiker dit lespakket zien? */
+export async function assertCanViewLessonPackage(db: Db, actor: Actor, packageId: string) {
+  const pkg = await db.lessonPackage.findFirst({
+    where: { AND: [{ id: packageId }, lessonPackageScope(actor)] },
+    select: { id: true, classGroupId: true, schoolId: true, organizationId: true },
+  });
+  if (!pkg) throw new AccessError(404, "Lespakket niet gevonden.");
+  return pkg;
+}
+
+/** Mag deze gebruiker dit lespakket verwijderen? Alleen groepsleden. */
+export async function assertCanManageLessonPackage(db: Db, actor: Actor, packageId: string) {
+  const pkg = await assertCanViewLessonPackage(db, actor, packageId);
+  await assertCanEditClassGroupContent(db, actor, pkg.classGroupId);
+  return pkg;
+}
+
 /**
  * Kwaliteitsdoelen (PDCA per doel): IB/directie (eigen school), kwaliteit en
  * bestuur (alle scholen). Het bestuur krijgt alleen tellingen per school, geen

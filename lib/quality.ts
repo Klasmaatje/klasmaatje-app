@@ -68,6 +68,29 @@ export function parseEffect(value: unknown): Effect | null {
   return typeof value === "string" && (EFFECTS as readonly string[]).includes(value) ? (value as Effect) : null;
 }
 
+// Uitvoering (kwaliteitskaart OP2: uitvoering en effect apart beoordelen). Door een mens.
+export const UITVOERING_LABEL: Record<Effect, string> = {
+  JA: "Uitgevoerd zoals gepland",
+  DEELS: "Deels uitgevoerd",
+  NEE: "Niet uitgevoerd",
+};
+
+// Vervolgbesluit na de evaluatie (OP2). Door een mens.
+export const VERVOLGBESLUITEN = ["VOORTZETTEN", "AANPASSEN", "INTENSIVEREN", "AFRONDEN"] as const;
+export type Vervolgbesluit = (typeof VERVOLGBESLUITEN)[number];
+export const VERVOLG_LABEL: Record<Vervolgbesluit, string> = {
+  VOORTZETTEN: "Voortzetten",
+  AANPASSEN: "Aanpassen",
+  INTENSIVEREN: "Intensiveren",
+  AFRONDEN: "Afronden",
+};
+export function parseVervolgbesluit(value: unknown): Vervolgbesluit | null {
+  return typeof value === "string" && (VERVOLGBESLUITEN as readonly string[]).includes(value) ? (value as Vervolgbesluit) : null;
+}
+
+/** Standaard looptijd van een korte interventie (OP2: in beginsel na vier weken evalueren). */
+export const DEFAULT_RUN_WEEKS = 4;
+
 // Volgorde en sterren zoals in de SHON-ambitiekaarten (*minimum, **basis, ***plus).
 export const CLUSTERS = [
   { key: "intensief", label: "Intensief (*)", hint: "Verlengde instructie en extra begeleide inoefening, op groepsniveau beschreven." },

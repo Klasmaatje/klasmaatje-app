@@ -31,6 +31,7 @@ model Organization {
   weekPlans        WeekPlan[]
   groupReflections GroupReflection[]
   clusterPlans     ClusterPlan[]
+  lessonPackages   LessonPackage[]
   qualityGoals     QualityGoal[]
   schoolResults    SchoolResult[]
 }
@@ -76,6 +77,7 @@ model School {
   weekPlans        WeekPlan[]
   groupReflections GroupReflection[]
   clusterPlans     ClusterPlan[]
+  lessonPackages   LessonPackage[]
   schoolResults    SchoolResult[]
 
   createdAt DateTime @default(now())
@@ -141,6 +143,7 @@ model User {
   groupReflections      GroupReflection[]
   clusterPlansCreated   ClusterPlan[]          @relation("ClusterPlanCreatedBy")
   clusterPlansFixed     ClusterPlan[]          @relation("ClusterPlanVastgesteldDoor")
+  lessonPackages        LessonPackage[]
   classGroupMemberships ClassGroupMembership[]
 
   @@unique([email])
@@ -179,6 +182,7 @@ model ClassGroup {
   weekPlans        WeekPlan[]
   groupReflections GroupReflection[]
   clusterPlans     ClusterPlan[]
+  lessonPackages   LessonPackage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -352,6 +356,8 @@ model Lesson {
   goalVerlengd   String?
   goalVerrijking String?
 
+  lessonPackages LessonPackage[]
+
   // Kwaliteitsvelden (uit SHON-trendanalyses)
   targetGroup      String?
   frequency        String?
@@ -452,6 +458,13 @@ model ClusterPlan {
   evaluatie String? // wat zie je terug (door een mens)
   effect    String? // JA | DEELS | NEE
 
+  // SHON-format (kwaliteitskaart OP2 h. 6): groepsanalyse en vervolg.
+  analyse          String? // beginsituatie, beheerst / nog te leren, onderwijsbehoefte, verklaring en bewijs
+  uitvoering       String? // JA | DEELS | NEE: is de aanpak uitgevoerd (door een mens)
+  vervolgbesluit   String? // VOORTZETTEN | AANPASSEN | INTENSIVEREN | AFRONDEN (door een mens)
+  volgendeControle String? // ISO-week van de volgende controle
+  conceptBron      String? // wie schreef het concept: "OpenAI (model)", "Oefenmodus", of null (handmatig)
+
   // Optionele koppeling aan een kwaliteitsdoel van het bestuur (PDCA-zicht).
   qualityGoalId String?
   qualityGoal   QualityGoal? @relation(fields: [qualityGoalId], references: [id])
@@ -513,4 +526,44 @@ model ClusterPlanSource {
 
   @@id([clusterPlanId, reflectionId])
   @@index([reflectionId])
+}
+
+// Lespakket: concept-lesvoorbereiding (EDI) door AI voor een groep, optioneel
+// bij een les uit Mijn Week. De leerkracht controleert en past aan.
+// Inhoud volgens LessonPackageSchema (lib/ai/lesson.ts). Geen leerlingdata.
+model LessonPackage {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id])
+  classGroupId   String
+  classGroup     ClassGroup   @relation(fields: [classGroupId], references: [id])
+  lessonId       String?
+  lesson         Lesson?      @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  createdById    String
+  createdBy      User         @relation(fields: [createdById], references: [id])
+
+  grades       Int[]
+  subject      String
+  learningGoal String
+  method       String?
+  minutes      Int
+  focus        String?
+
+  content      Json // LessonPackage (zod-schema)
+  checks       Json    @default("[]") // opmerkingen uit de automatische controle
+  status       String  @default("DRAFT") // DRAFT | GEBRUIKT
+  provider     String // "OpenAI", "Claude", "Oefenmodus"
+  model        String?
+  inputTokens  Int?
+  outputTokens Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classGroupId])
+  @@index([schoolId])
+  @@index([organizationId])
+  @@index([lessonId])
 }
