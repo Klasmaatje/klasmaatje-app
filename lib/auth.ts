@@ -4,12 +4,23 @@ import { nextCookies } from "better-auth/next-js";
 import { APIError } from "better-auth/api";
 import { prisma } from "./prisma";
 
+// Demo-omgeving (DEMO_MODE=1): registreren staat uit; alleen de demo-accounts uit de seed.
+const DEMO = process.env.DEMO_MODE === "1";
+
+// Op Vercel: het vaste projectdomein, de branch-URL en de URL van deze deployment zijn vertrouwde herkomsten
+// (Better Auth weigert anders inloggen vanaf een andere host dan BETTER_AUTH_URL).
+const vercelOrigins = [process.env.VERCEL_PROJECT_PRODUCTION_URL, process.env.VERCEL_BRANCH_URL, process.env.VERCEL_URL]
+  .filter((h): h is string => Boolean(h))
+  .map((h) => `https://${h}`);
+
 export const auth = betterAuth({
+  trustedOrigins: vercelOrigins,
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
   emailAndPassword: {
     enabled: true,
+    disableSignUp: DEMO,
   },
   user: {
     additionalFields: {
