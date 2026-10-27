@@ -37,6 +37,17 @@ export const auth = betterAuth({
   },
   databaseHooks: {
     user: {
+      // De school bepaalt de scope (IB/directie zien de hele school). Die mag een
+      // gebruiker na registratie NIET zelf wijzigen via /api/auth/update-user;
+      // een schoolwissel doet beheer rechtstreeks in de database.
+      update: {
+        before: async (data) => {
+          if (data && typeof data === "object" && ("schoolId" in data || "organizationId" in data || "role" in data)) {
+            throw new APIError("FORBIDDEN", { message: "School, bestuur en rol kun je niet zelf wijzigen." });
+          }
+          return { data };
+        },
+      },
       create: {
         before: async (user) => {
           // De leerkracht kiest bij registratie een school. We vertrouwen de
