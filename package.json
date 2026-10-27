@@ -9,7 +9,9 @@
     "lint": "eslint",
     "dev:demo": "node scripts/demo.mjs next dev -p 3001",
     "demo:migrate": "node scripts/demo.mjs prisma migrate deploy",
-    "demo:seed": "node scripts/demo.mjs tsx prisma/demo-seed.ts"
+    "demo:seed": "node scripts/demo.mjs tsx prisma/demo-seed.ts",
+    "demo:reset-access": "node scripts/demo.mjs tsx prisma/scripts/demo-reset-access.ts",
+    "test:checks": "node scripts/tests/demo-guard.test.mjs && tsx scripts/tests/drawing-box.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.72",

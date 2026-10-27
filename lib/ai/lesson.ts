@@ -21,7 +21,7 @@ const Niveau = z.object({
 });
 
 export const LessonPackageSchema = z.object({
-  titel: z.string(),
+  titel: z.string().describe("Korte titel van de les, zonder woorden als 'concept'"),
   lesdoel: z.string().describe("Concreet lesdoel, begint met 'Ik kan ...'"),
   succescriteria: z.array(z.string()).describe("2 tot 4 criteria: 'Het is gelukt als ...'"),
   voorkennis: z.string().describe("Hoe de leerkracht voorkennis activeert (2 tot 4 minuten)"),
@@ -77,6 +77,8 @@ export function buildLessonPrompt(req: LessonRequest): { system: string; user: s
     "- Visueel materiaal: beschrijf alleen wat er op een plaatje of schema moet staan.",
     "- Tijdsindeling: alle onderdelen in volgorde met hele minuten; samen precies de lesduur.",
     "- Schrijf beknopt: een leerkracht moet het pakket in ongeveer 5 minuten kunnen doornemen. Uitgebreider is niet beter.",
+    "- Zet geen woorden als 'concept' in de titel; dat het een concept is, toont de app zelf.",
+    "- Gebruik 'lesdoel' of 'doel', niet 'kerndoel' (dat is een vast SLO-begrip).",
     "- Helder, eenvoudig Nederlands.",
     "",
     "Controleer voordat je antwoordt:",

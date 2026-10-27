@@ -5,6 +5,7 @@
 //   node scripts/demo.mjs tsx prisma/demo-seed.ts
 import { config } from "dotenv";
 import { spawn } from "node:child_process";
+import { demoDatabaseProblem } from "../lib/demo-guard.mjs";
 
 const result = config({ path: ".env.demo", override: true, quiet: true });
 if (result.error) {
@@ -15,8 +16,12 @@ if (process.env.DEMO_MODE !== "1") {
   console.error("Geweigerd: DEMO_MODE=1 ontbreekt in .env.demo.");
   process.exit(1);
 }
-if (!process.env.DATABASE_URL) {
-  console.error("Geweigerd: DATABASE_URL ontbreekt in .env.demo.");
+// Zelfde regel als de app (lib/demo-guard.mjs): alleen de expliciet toegestane
+// demodatabase, nooit SHON. Geldt voor next, prisma (migraties) en tsx (seed).
+const problem = demoDatabaseProblem(process.env);
+if (problem) {
+  console.error(problem);
+  console.error("Controleer in .env.demo: DEMO_DB_REF=<projectcode demodatabase> en DATABASE_URL van datzelfde project.");
   process.exit(1);
 }
 

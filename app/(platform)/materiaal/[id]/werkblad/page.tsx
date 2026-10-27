@@ -4,12 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { AccessError, assertCanViewLessonPackage, lessonPackageScope } from "@/lib/access";
 import { requireActor } from "@/lib/current-actor";
 import { LessonPackageSchema } from "@/lib/ai/lesson";
+import { needsDrawingBox } from "@/lib/ai/drawing-box";
 import { niveauLabels } from "../../package-view";
 import PrintButton from "../../print-button";
 
 // Afdrukbaar werkblad: per niveau een eigen blad zonder antwoorden, daarna een antwoordblad voor de leerkracht.
 
 const INK = "#1F1730";
+// Opdrachten waarbij de leerling tekent of kleurt krijgen een tekenvak in plaats van schrijflijnen (zie lib/ai/drawing-box.ts).
 
 export default async function WorksheetPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -53,8 +55,14 @@ export default async function WorksheetPage({ params }: { params: Promise<{ id: 
             {pkg.werkblad.filter((w) => w.niveau === n).map((w, i) => (
               <li key={i}>
                 <p>{w.opdracht}</p>
-                <div className="mt-6 border-b" style={{ borderColor: "#BBB" }} />
-                <div className="mt-6 border-b" style={{ borderColor: "#BBB" }} />
+                {needsDrawingBox(w.opdracht) ? (
+                  <div className="mt-3 h-40 rounded border" style={{ borderColor: "#BBB" }} aria-label="Tekenvak" />
+                ) : (
+                  <>
+                    <div className="mt-6 border-b" style={{ borderColor: "#BBB" }} />
+                    <div className="mt-6 border-b" style={{ borderColor: "#BBB" }} />
+                  </>
+                )}
               </li>
             ))}
           </ol>

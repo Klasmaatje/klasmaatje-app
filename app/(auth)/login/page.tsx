@@ -49,10 +49,16 @@ export default function LoginPage() {
           {loading ? "Bezig..." : "Inloggen"}
         </button>
 
-        <p className="text-sm mt-4 text-center" style={{ color: "#6B5C87" }}>
-          Nog geen account? <a href="/register" style={{ color: "#3D2467", fontWeight: 500 }}>Registreren</a>
-        </p>
+        {process.env.NEXT_PUBLIC_DEMO_MODE === "1" ? (
+          <p className="text-sm mt-4 text-center" style={{ color: "#6B5C87" }}>
+            Demo-omgeving: log in met een van de demo-accounts.
+          </p>
+        ) : (
+          <p className="text-sm mt-4 text-center" style={{ color: "#6B5C87" }}>
+            Nog geen account? <a href="/register" style={{ color: "#3D2467", fontWeight: 500 }}>Registreren</a>
+          </p>
+        )}
       </form>
     </div>
   );
-}
+}

@@ -37,8 +37,8 @@ import { parseLevel } from "../lib/quality";
 import { generateClusterDraft, type ClusterRequest } from "../lib/ai/cluster";
 import { generateLessonPackage, pickProvider } from "../lib/ai";
 import { mockProvider } from "../lib/ai/providers/mock";
+import { demoDatabaseProblem } from "../lib/demo-guard.mjs";
 
-const SHON_PROJECT_REF = "naeijrpkbjlrcrdxaids";
 const DEMO_SLUG = "shon-demo";
 const MAIL = "demo.klasmaatje.test";
 
@@ -47,13 +47,9 @@ function guard() {
     console.error("Geweigerd: DEMO_MODE=1 ontbreekt. Draai dit alleen via `npm run demo:seed` met .env.demo.");
     process.exit(1);
   }
-  const url = process.env.DATABASE_URL ?? "";
-  if (!url) {
-    console.error("Geweigerd: DATABASE_URL ontbreekt in .env.demo.");
-    process.exit(1);
-  }
-  if (url.includes(SHON_PROJECT_REF)) {
-    console.error("Geweigerd: DATABASE_URL wijst naar de SHON-database. De demo hoort in een eigen project.");
+  const problem = demoDatabaseProblem(process.env);
+  if (problem) {
+    console.error(problem);
     process.exit(1);
   }
 }
@@ -202,6 +198,7 @@ async function removeDemo() {
   const org = await prisma.organization.findUnique({ where: { slug: DEMO_SLUG }, select: { id: true } });
   if (!org) return;
   const where = { organizationId: org.id };
+  await prisma.lessonPackage.deleteMany({ where }); // vóór lessen en accounts (verwijzingen)
   await prisma.clusterPlanSource.deleteMany({ where: { clusterPlan: where } });
   await prisma.clusterPlan.deleteMany({ where });
   await prisma.groupReflection.deleteMany({ where });

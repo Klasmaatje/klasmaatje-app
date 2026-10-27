@@ -88,6 +88,8 @@ export async function generateLessonPackage(
   request: LessonRequest,
   provider: AiProvider
 ): Promise<{ pkg: LessonPackage; notes: string[]; provider: string; usage?: TokenUsage }> {
-  const { pkg, usage } = await provider.lessonPackage(buildLessonPrompt(request));
+  const { pkg: raw, usage } = await provider.lessonPackage(buildLessonPrompt(request));
+  // "CONCEPT - ..." hoort niet in de titel: de app toont zelf dat het een concept is.
+  const pkg = { ...raw, titel: raw.titel.replace(/^\s*concept\b\s*[-–—:]?\s*/i, "").trim() || raw.titel };
   return { pkg, notes: checkLessonPackage(pkg, request), provider: provider.name, usage };
 }

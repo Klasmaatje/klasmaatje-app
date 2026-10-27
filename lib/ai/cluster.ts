@@ -83,7 +83,9 @@ const RULES = [
   "- Gebruik alleen wat in de invoer staat. Verzin geen toetsscores, percentages, niveauwaarden of methodelessen. Ontbreekt informatie (bijvoorbeeld Cito M/E-gegevens), schrijf dan 'bewijs ontbreekt' of 'nog aan te vullen'.",
   "- Maak herleidbaar waar iets op gebaseerd is, met weeknummers ('in week 43 en 44 ...').",
   "- Doe geen uitspraak of een norm gehaald wordt; een plan draagt bij aan een doel, het bewijst niets.",
-  "- Schrijf beknopt: per veld hooguit ongeveer 100 woorden. Helder, eenvoudig Nederlands.",
+  "- Schrijf beknopt: per veld hooguit ongeveer 70 woorden. Helder, eenvoudig Nederlands.",
+  "- Herhaal gemeenschappelijke afspraken (tussenmeting, evaluatiemoment, gebruikte reflecties) niet in elk cluster: noem ze één keer, in de analyse of bij het basiscluster.",
+  "- Gebruik 'doel' of 'lesdoel', niet 'kerndoel' (dat is een vast SLO-begrip).",
 ].join("\n");
 
 export function buildClusterPrompt(req: ClusterRequest): { system: string; user: string } {
